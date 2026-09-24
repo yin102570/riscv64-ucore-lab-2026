@@ -1,0 +1,28 @@
+# ---- 大文件 ----
+操作系统助教版.zip
+*.zip
+*.mp4
+
+# ---- 构建产物 ----
+bin/
+obj/
+*.o
+*.img
+*.asm
+*.sym
+*.elf
+
+# ---- 敏感信息 ----
+.env
+.credentials.yaml
+*.pem
+*.key
+
+# ---- 临时 / 草稿 ----
+temp/
+nul
+*.tmp
+
+# ---- 工具 ----
+node_modules/
+.DS_Store

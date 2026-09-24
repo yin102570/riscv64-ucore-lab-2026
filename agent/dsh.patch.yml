@@ -1,0 +1,29 @@
+# =====================================================================
+# 三人共享的 dsh agent 覆盖层 —— 「agent 同步」的核心文件
+# =====================================================================
+# 用途：让三台机器的 dsh 使用完全相同的模型与权限策略，
+#       从而同一张提示词卡在任何人的机器上都能逐字复现。
+#
+# 启动方式（在仓库根目录执行）：
+#   bash agent/dsh-web.sh
+# 或手动：
+#   dsh web --patch "$(pwd)/agent/dsh.patch.yml"
+#   dsh --profile headless --patch "$(pwd)/agent/dsh.patch.yml" "任务"
+#
+# 同步方式：改这里 → git commit & push → 另外两人 git pull 即完成同步。
+#
+# ⚠️ 只放可公开配置；API Key 各人在 ~/.dsh/.credentials.yaml 里配，绝不入库。
+# =====================================================================
+
+# 1) 统一模型 —— 复现性的第一变量
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    # 可选：deepseek-flash / deepseek-v4-flash / deepseek-v4-flash-vision-exp / deepseek-v4-pro
+    model: deepseek-v4-flash        # = "DeepSeek-V4-Flash"；老师若指定别的模型只改这一行
+
+# 2) 统一权限策略 —— 只写工作区（安全默认值，显式钉死，防止三人 .bashrc 环境变量不一致）
+- id: sandbox-policy
+  config:
+    mode: workspace-write
+    workspaceRoot: !!js process.cwd()   # 必须带上，否则覆盖层会丢掉工作区根目录
