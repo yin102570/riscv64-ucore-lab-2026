@@ -10,7 +10,7 @@
 
 ### 小组分工
 
-练习如何分工？
+#### 分工（练习与功能模块）
 
 | 成员 | 负责的练习/模块 |
 |------|----------------|
@@ -18,7 +18,7 @@
 | 2410749-宋秋实 | **练习 2**（用 GDB 从加电复位跟踪到内核第一条指令 `0x80200000`）、**功能模块二**（启动链 GDB 观测脚本与会话证据）、第五节 测试与验证（`make qemu` 截图 + harness 等效验收） |
 | 2412090-兰雨杉 | **拓展**（现代笔记本的启动流程对照）、**功能模块一**（交叉编译与镜像生成：命令级取证与可复现性）、**功能模块三**（启动链证据台账与验收判据）、第六节 实验总结、仓库整理与提交 |
 
-实验报告如何分工？
+#### 分工（报告撰写与交叉复核）
 
 | 成员 | 撰写章节 | 必须完成的交叉复核动作（复核通过与否决定该节能否定稿） |
 |------|---------|--------------------------------------------------|
@@ -111,7 +111,7 @@
 | `.text` | 1224 B | `0x80200000` | 代码；**第一个字节就是 `kern_entry` 的第一条指令**（`xxd` 首行 `1731 0000 1301 0100 09a0`） |
 | `.rodata` | 624 B | `0x802004c8` | 只读常量，含 `(THU.CST) os is loading ...\n`（`0x802004c8`）与格式串 `%s\n\n`（`0x802004e8`） |
 | `.data` | 8192 B | `0x80201000` | **内核栈 `bootstack`**（`KSTACKSIZE = 2 × 4096`），全 0 |
-| `.sdata` | 8 B | `0x80203000` | `SBI_CONSOLE_PUTCHAR = 1`（数值上恰好等于 `bootstacktop`） |
+| `.sdata` | 8 B | `0x80203000` | `SBI_CONSOLE_PUTCHAR = 1`（实测节内容 `01000000 00000000`）；该节**起始地址**恰好等于 `bootstacktop` |
 | `.bss` | **0 B** | — | 本构建中不存在该节；`edata == end == 0x80203008`（机理见 §四 模块五 实验 4） |
 
 **镜像足迹表**：
@@ -119,7 +119,7 @@
 | 符号 | 值 | 含义 |
 |---|---|---|
 | `entry` | `0x80200000` | 内核入口（= ELF 头 `Entry point address`） |
-| `etext` | `0x802004c8` | 代码段结束 = 只读数据段起点 |
+| `etext`（链接脚本 `PROVIDE(etext = .)`） | `0x802004c8` | `.text` 结束地址；**因本工程无任何代码引用该符号，链接器不把它写入符号表**（`nm`/`readelf -s` 均查不到），故它是"布局事实"而非"可 `nm` 验证的符号"——实测依据取 `.rodata` 的起始地址 |
 | `edata` | `0x80203008` | 数据段结束 = `.bss` 起点（本构建等于 `end`） |
 | `end` | `0x80203008` | 内核镜像内存映像的末尾 |
 | 镜像足迹 | `12296 B ≈ 12 KiB`（BIN）；ELF 48752 B 中的其余部分为调试信息 | 加载器真正需要搬进内存的字节数 |
@@ -203,7 +203,7 @@ kern/**/*.c, *.S ──gcc -c──► obj/**.o ──ld -T tools/kernel.ld─�
 
 | 项目 | 事实 | 如何核对 |
 |---|---|---|
-| `code/` 内容 | 老师提供的 lab1 起始源码 **21 个文件** | `code/` 目录清单 |
+| `code/` 内容 | 老师提供的 lab1 起始源码 **21 个文件**（其中 **8 个参与编译**：7 个 `.c` + 1 个 `.S`；其余是头文件、`Makefile`、`kernel.ld`、`function.mk`）；本组另加了 1 个 `.gitignore`，故 `code/` 共 **22 个文件** | `code/` 目录清单 |
 | 其中 20 个文件 | 与老师给的骨架**逐字节相同**（git blob 哈希比对） | `git hash-object` 比对结果 |
 | **唯一差异：`code/Makefile`** | 为在本机 **QEMU 7.0.0** 上"开箱即跑"做了 3 处环境适配（见下） | 与 `lab1-源码存档/lab1/Makefile` 对比 |
 | 构建产物 `bin/ obj/` | **不入库**（仓库 `code/.gitignore` 已忽略），但其 sha256 与体积写在报告 §五(8) 中 | 见 §五(8) 与 EV-33 |
@@ -247,7 +247,7 @@ kern/**/*.c, *.S ──gcc -c──► obj/**.o ──ld -T tools/kernel.ld─�
 
 ## 三、实验整体逻辑分析
 
-### 2.1 本章节的逻辑主线
+### 3.1 本章节的逻辑主线
 
 **一句话主线：把"一个躺在磁盘上的文件"变成"一台机器上正在运行的最小内核"。**
 
@@ -296,7 +296,7 @@ while (1);  ← 自跳转（0x8020003a: j 0x8020003a）；内核永不退出：�
 **总结就是我们 lab1 的价值不在功能多少，而在于它把后面所有实验都依赖的那条启动链打通并验证了**；
 本章之后，我们才有资格问"内核能做什么"，而不是"内核能不能跑起来"。
 
-### 2.2 功能的逐步实现
+### 3.2 功能的逐步实现
 
 本章的推进顺序不是随意排的，每一步都在为下一步创造前提；我们把它总结为
 **"先定位置 → 再出东西 → 再交接 → 再证明它活着"**：
@@ -314,7 +314,10 @@ while (1);  ← 自跳转（0x8020003a: j 0x8020003a）；内核永不退出：�
 2. **接着产出两种格式的镜像（交叉编译 + `objcopy`）**
    → *为什么接着做这个？* 有了布局还不够，必须把它变成"加载器吃得下去"的东西：
    `bin/kernel`（ELF，48752 B，带调试符号）给 GDB；`bin/ucore.img`（BIN，12296 B，去符号）给 OpenSBI。
-   **实测体积账**：`12296 = 0x1000（页对齐填充 2248 B）+ 0x2000（`.data` 里 8192 B 内核栈）+ 8 B（`.sdata`）`。
+   **实测体积账**：`12296 = 4096 + 8192 + 8`
+   — 其中 4096 B（`0x1000`）= `.text` 1224 + `.rodata` 624 + **页对齐填充 2248**
+   （`.text+.rodata` 结束于 `0x80200738`，`ALIGN(0x1000)` 把 `.data` 推到 `0x80201000`）；
+   8192 B = `.data` 里的内核栈；8 B = `.sdata`。
    **判据**：`make V=` 的完整命令能重现产物，且重编译后 sha256 不变（§二 5）。
 
 3. **然后是"让机器真的跳过来"（QEMU + OpenSBI 的启动链）——本章最难也最有价值的一步**
@@ -351,6 +354,50 @@ while (1);  ← 自跳转（0x8020003a: j 0x8020003a）；内核永不退出：�
 > 这是我们组对"提示词优化"这件事的**自觉掌握**：不只知道怎么写，还知道**为什么这么写有效**。
 
 ---
+
+### 功能模块零：内核源码逐模块讲解
+
+> 对应指导书《实验报告要求》第 3 条：说明自己对每个功能的核心函数或功能模块的理解。
+
+#### 0.1 一张图看完整执行流
+
+QEMU 加电(PC=0x1000) → MROM 复位跳板(6 条) → OpenSBI @0x80000000 (M 模式)
+      → mret 到 0x80200000 (S 模式) → kern_entry: la sp, bootstacktop
+      → tail kern_init → memset(edata,0,end-edata) → cprintf("(THU.CST) os is loading ...") → while(1)
+
+#### 0.2 逐文件、逐核心函数
+
+| 文件 | 核心函数 / 符号 | 职责 | 关键实测 |
+|---|---|---|---|
+| `tools/kernel.ld` | `BASE_ADDRESS`、`ENTRY(kern_entry)`、`PROVIDE(edata/end)`、`. = ALIGN(0x1000)` | 布局契约：把内核定死在 `0x80200000`，声明入口符号，留下段边界 | `.text` 1224 B @`0x80200000`；`.rodata` 624 B @`0x802004c8`；`.data` 8192 B @`0x80201000`；`.sdata` 8 B @`0x80203000`；无 `.bss` |
+| `kern/init/entry.S` | `kern_entry`、`bootstack`、`bootstacktop` | 汇编外壳：建立内核栈 → 把控制权交给 C | `la sp` 实测 = `auipc sp,0x3` + `addi sp,sp,0`；`sp` 由 `0x8003def0`（OpenSBI 栈）变为 `0x80203000`；`tail` = `c.j kern_init`（2 字节，不写 `ra`） |
+| `kern/init/init.c` | `kern_init`（`__attribute__((noreturn))`） | 清 `.bss` → 打印启动信息 → `while(1)` | `edata == end == 0x80203008`，本构建 `.bss` 为 0 字节，`memset` 实为空操作但语义保留 |
+| `kern/libs/stdio.c` | `cputch`、`vcprintf`、`cprintf`、`cputs`、`getchar` | 变参适配层：把 printf 风格调用接到"逐字符输出"回调 | `cprintf` → `va_start` → `vcprintf` → `vprintfmt((void*)cputch,&cnt,...)` |
+| `libs/printfmt.c` | `vprintfmt`、`printnum`、`printfmt` | 格式化引擎：解析 `%s/%d/%x/%p`，逐字符回调 | 链接后保留的 11 个函数里含 `vprintfmt`、`printnum`、`printfmt` |
+| `libs/riscv.h` | `do_div(n,base)`、`read_csr`、`write_csr` | 架构宏：一步完成"取余 + 整除"，供 `printnum` 做进制转换 | `printnum` 靠它逐位取数，不依赖 libgcc 除法例程 |
+| `kern/driver/console.c` | `cons_putc`、`cons_getc` | 设备抽象层：把"输出一个字符"落到具体设备 | `cons_putc` 的唯一动作 = `sbi_console_putchar((unsigned char)c)` |
+| `libs/sbi.c` | `sbi_call`、`sbi_console_putchar`、`sbi_set_timer` | SBI 服务契约（S→M）：按约定填寄存器后 `ecall` | `mv x17,type` + `mv x10..x12,args` + `ecall` + `mv ret,x10`；`SBI_CONSOLE_PUTCHAR=1` 实测存于 `.sdata`（`01000000 00000000`） |
+| `kern/mm/memlayout.h` | `KSTACKSIZE`（= `KSTACKPAGE × PGSIZE` = 8192） | 内核栈大小 | 与 `bootstacktop - bootstack = 8192` 一致 |
+| `kern/mm/mmu.h` | `PGSHIFT`（12）、`PGSIZE`（4096） | 页大小常量，`entry.S` 用 `.align PGSHIFT` 做 4 KB 对齐 | `.data` 起始 `0x80201000` 落在页边界 |
+| `Makefile` + `tools/function.mk` | `add_files_cc`、`read_packet` | 构建流：编 8 个源文件 → `ld -T tools/kernel.ld --gc-sections` → `objcopy --strip-all -O binary` | 11 条命令可完整重现（§二 5） |
+
+#### 0.3 一条完整的调用链（以打印那一行为例）
+
+```text
+cprintf("(THU.CST) os is loading ...\n")
+  → vcprintf(fmt, ap)                     # kern/libs/stdio.c：处理 va_list
+  → vprintfmt(cputch, &cnt, fmt, ap)      # libs/printfmt.c：解析 %s
+  → cputch(c, &cnt)                       # 每字符回调：计数 +1
+  → cons_putc(c)                          # kern/driver/console.c：设备层
+  → sbi_console_putchar(c)                # libs/sbi.c：SBI 封装
+  → sbi_call(SBI_CONSOLE_PUTCHAR, c,0,0)  # 填 x17/x10/x11/x12 → ecall
+  → [M 模式 OpenSBI 处理] → uart8250 → 屏幕
+```
+
+`--gc-sections` 的后果：未被引用的函数/数据会被丢弃。本构建最终只保留 11 个 `.text` 函数
+（`kern_entry / kern_init / cputch / cprintf / cons_putc / printnum / vprintfmt / printfmt / sbi_console_putchar / strnlen / memset`），
+这也解释了 `.sdata` 为什么只有 8 字节——9 个 SBI 编号常量里，只有 `SBI_CONSOLE_PUTCHAR` 所在的那条路径被链接保留
+（`SBI_SET_TIMER` 虽出现在 `sbi_set_timer()` 中，但该函数无人调用、已被 `--gc-sections` 丢弃）。
 
 ### 功能模块一：交叉编译与镜像生成
 
@@ -590,6 +637,10 @@ logs/gdb/lab1-session-B.txt     # 该脚本的真实输出（命令 + 输出，�
 - 单步范围限定为复位代码的前 5 条（只为看清复位代码，不穿越 OpenSBI）。
 ````
 
+> 注：以上是**老师原始 Makefile** 的写法；本机 QEMU 7.0 下 `-bios default` 为 `fw_dynamic`，
+> 该写法会导致 `next_addr = 0`，故已适配为 `-kernel $(UCOREIMG)`（见功能模块四）。
+> GDB 部分原版用 `riscv64-unknown-elf-gdb`，本组仓库改为 `gdb-multiarch`，两者对本实验等价。
+
 **提示词设计依据（对照 lab0.5 四原则）**：
 
 | lab0.5 原则 | 落实方式 |
@@ -640,7 +691,7 @@ logs/gdb/lab1-session-B.txt     # 该脚本的真实输出（命令 + 输出，�
 
 ### 功能模块三：启动链证据台账与验收判据
 
-**负责人：** 2410665-殷佳仪
+**负责人：** 2412090-兰雨杉
 
 #### 模块功能描述
 
@@ -1430,10 +1481,14 @@ ALL PASS (1 cases)
 | 产物 | 值 |
 |---|---|
 | `bin/kernel`（ELF，带调试符号） | 48752 字节；`Entry point address: 0x80200000`；sha256 `d2f872c4…739` |
-| `bin/ucore.img`（BIN，供加载） | 12296 字节 = `0x1000`（页对齐填充 2248 B）+ `0x2000`（8192 B 内核栈）+ 8 B；sha256 `a21c1124…67fd` |
+| `bin/ucore.img`（BIN，供加载） | 12296 字节 = 4096（`.text`+`.rodata`+页对齐填充） + 8192（内核栈） + 8（`.sdata`）；sha256 `a21c1124…67fd` |
 | 段布局 | `.text` 1224 B @`0x80200000`；`.rodata` 624 B @`0x802004c8`；`.data` 8192 B @`0x80201000`；`.sdata` 8 B @`0x80203000`；**无 `.bss`** |
 | 关键符号 | `kern_entry`=0x80200000、`kern_init`=0x8020000a、`bootstack`=0x80201000、`bootstacktop`=0x80203000、`edata`=`end`=0x80203008 |
 | 内核保留的函数（`--gc-sections` 后） | 11 个：`kern_entry / kern_init / cputch / cprintf / cons_putc / printnum / vprintfmt / printfmt / sbi_console_putchar / strnlen / memset` |
+
+> 注：`bin/kernel` 的体积与**构建目录路径长度**有关（调试信息内嵌 `DW_AT_comp_dir`），
+> 实测同一份源码在不同目录下为 48752 / 48760 / 48792 字节；而 `bin/ucore.img` 在四种目录下
+> sha256 恒为 `a21c1124…67fd`（逐字节可复现）。**可复现性判据以 BIN 为准，不以 ELF 体积为准。**
 
 ### （9）关键步骤截图全集
 
@@ -1508,7 +1563,7 @@ ALL PASS (1 cases)
 | 5 | **动态内存管理**（堆、`malloc/free`、碎片） | 完全没有，所有内存由链接器静态分配 | 动态分配建立在物理页管理之上（lab2） |
 | 6 | **文件系统与持久化存储** | 完全没有。实测 QEMU 命令行**没有任何磁盘设备**，镜像由 `-kernel` 直接进内存；教程"内核被加载到硬盘"在此配置下**不成立** | 文件系统是 lab8/lab9；没有驱动就没有文件系统 |
 | 7 | **用户态与系统调用的完整链路** | 没有用户态。QEMU in_asm 日志里 `Priv: 0` 块数 = 0，是**硬证据** | 需要进程与 trap 框架（lab3–lab5）。"有 `ecall` 就等于有系统调用"是误解：取决于发生在哪个特权边界 |
-| 8 | **设备驱动与中断驱动 I/O** | 只有"输出一个字符"这一条最短路径，且绕过全部硬件细节（直接问固件要服务） | 本实验刻意用 SBI 服务代替写驱动。⚠️ 另注：`sbi.h` 声明了 `sbi_console_getchar/sbi_shutdown/sbi_query_memory` 但 `sbi.c` **没有实现**；因无人引用被 `--gc-sections` 丢弃，链接才成功——**一旦有人调用 `getchar()`，链接就会报未定义符号** |
+| 8 | **设备驱动与中断驱动 I/O** | 只有"输出一个字符"这一条最短路径，且绕过全部硬件细节（直接问固件要服务） | 本实验刻意用 SBI 服务代替写驱动。⚠️ 另注：`sbi.h` 声明 7 个函数，`sbi.c` 只实现 3 个（`sbi_call`/`sbi_console_putchar`/`sbi_set_timer`），未实现的 5 个是 `sbi_query_memory`、`sbi_send_ipi`、`sbi_clear_ipi`、`sbi_shutdown`、`sbi_console_getchar`；因无人引用被 `--gc-sections` 丢弃，链接才成功——**一旦有人调用 `getchar()`，链接就会报未定义符号** |
 | 9 | **内存保护与隔离**（页权限、内核/用户边界、栈守卫页） | 没有。`satp=0`，所有地址可读写执行；内核栈上下无守卫页 | 需要分页（lab2）与进程隔离（lab4） |
 | 10 | **启动安全与信任链**（Secure Boot、度量、镜像校验） | 完全没有。QEMU 会加载任何指定镜像 | 实验要的是可反复试验；这是真实启动链里最复杂的部分 |
 | 11 | **多核（SMP）启动与 hart 管理** | 只看到"被引导的那一刻"：复位代码把 `mhartid` 放进 `a0`；`-smp 4` 实测 `Boot HART = 1`、4 个 hart 同属 Domain0。**其余 hart 如何被唤醒（HSM/IPI）本实验没有体现** | 单 hart 足够跑通最小内核；完整多核启动是 lab6 之后的话题 |
@@ -1572,7 +1627,7 @@ lab2 的"页表契约"（内核虚拟地址 ↔ 物理地址）、lab3 的"trap 
 
 指导书 lab0.5 给了四条原则（**基于任务而非函数 / 边界清楚 / 要求可验证 / 保留真实语义**）
 与四段式骨架（`[PROMPT] [RELY] [GUARANTEE] [SPECIFICATION]`）。本章没有代码填空，
-于是我们把它们**迁移到"取证类任务"上**，并额外补了两段——这是本组对提示词用法的具体扩展：
+于是我们把它们**迁移到"取证类任务"上**，并把证据要求与禁止事项写进四段式的对应段落——这是本组对提示词用法的具体扩展：
 
 | 段落 | 作用 | 我们新增/强化的理由 |
 |---|---|---|
@@ -1580,8 +1635,8 @@ lab2 的"页表契约"（内核虚拟地址 ↔ 物理地址）、lab3 的"trap 
 | `[RELY]` | 最小可信上下文（宏/结构/地址/命令） | 坚持"地址、符号、字段一律取自实测"，绝不写"大概是" |
 | `[GUARANTEE]` | 交付清单（本章是**文件 + 断言**，而非函数签名） | 明确写出"本章无代码填空，故 `[GUARANTEE]` 列的是证据文件与断言" |
 | `[SPECIFICATION]` | `Pre/Post-Condition` + `Case 1/2/3` | **`Case 2` 固定留给"未观察到/失败"路径**，防止只写顺耳结论 |
-| **`[EVIDENCE]`（我们新增）** | 要求"每个结论必须给出：命令原文 → 原始输出 → 文件路径" | 让 AI 的产出**天然可复核**；没有这一条，AI 很容易只给结论 |
-| **`[FORBIDDEN]`（我们新增）** | 显式列出禁止事项：改源码、用记忆填参数、用上次输出冒充本次、使用"应该/通常" | 把"防幻觉"从口头要求变成提示词里的硬约束 |
+| **证据要求（落在 `[SPECIFICATION] → Requirements`）** | 要求"每个结论必须给出：命令原文 → 原始输出 → 文件路径" | 让 AI 的产出**天然可复核**；没有这一条，AI 很容易只给结论 |
+| **禁止事项（落在 `[SPECIFICATION] → Requirements` 与 `[GUARANTEE]`）** | 显式列出禁止事项：改源码、用记忆填参数、用上次输出冒充本次、使用"应该/通常" | 把"防幻觉"从口头要求变成提示词里的硬约束 |
 
 **工作流程：指导书五步 + 我们的第 0 步。**
 lab0.5 给的是"理解任务 → 梳理需求 → 编写提示词 → 生成和验证 → 迭代优化"。
@@ -1651,9 +1706,9 @@ lab0.5 给的是"理解任务 → 梳理需求 → 编写提示词 → 生成和
 4. **AI 也可以帮我们改正教材**：本报告有两处结论是**实测修正教材**的
    （PC 相对寻址；`entry.o` 无 `.text.kern_entry` 节、入口靠链接顺序），
    外加一处我们自己的计数错误（复位向量 5 → 6 条）。**AI 加速的是"验证"，不是"相信"。**
-5. **把"防幻觉"写进提示词，而不是靠事后校对**：我们在四段式之外加了 `[EVIDENCE]`
-   与 `[FORBIDDEN]` 两段——前者要求"每条结论给出命令/输出/路径"，后者显式禁止
-   "凭记忆填参数、用上次输出冒充本次、使用应该/通常"。加入这两段后，
+5. **把"防幻觉"写进提示词，而不是靠事后校对**：我们把证据要求写进 `[SPECIFICATION] → Requirements`、
+   把禁止事项写进 `[GUARANTEE]`——前者要求"每条结论给出命令/输出/路径"，后者显式禁止
+   "凭记忆填参数、用上次输出冒充本次、使用应该/通常"。加入这两条约束后，
    AI 的产出从"读起来像报告"变成"可以直接进台账"。
 6. **失败要留档，因为它定义了后续方法**：第一次 `ecall` 实验没跨过 `ecall`、
    第一次 in_asm 检索全为 0、`.bss` 实验第一次"没出现 .bss"——
