@@ -1,5 +1,8 @@
+/* string.c —— 自备的极简 libc。反复出现的 #ifdef __HAVE_ARCH_XXX 表示“若架构提供优化版
+   就用它”；本工程都没定义，所以实际编译的是 #else 里的通用 C 实现。 */
 #include <string.h>
 
+/* strlen：逐字节数到 '\0'。在循环条件里反复调用是常见性能陷阱。 */
 /* *
  * strlen - calculate the length of the string @s, not including
  * the terminating '\0' character.
@@ -16,6 +19,7 @@ strlen(const char *s) {
     return cnt;
 }
 
+/* strnlen：同 strlen，但最多只看 len 个字节（printfmt 的 %s 靠它防越界扫描）。 */
 /* *
  * strnlen - calculate the length of the string @s, not including
  * the terminating '\0' char acter, but at most @len.
@@ -38,6 +42,7 @@ strnlen(const char *s, size_t len) {
     return cnt;
 }
 
+/* strcpy：经典写法 (*p++ = *src++) 一次完成赋值、前移与判尾；不检查 dst 是否够长。 */
 /* *
  * strcpy - copies the string pointed by @src into the array pointed by @dst,
  * including the terminating null character.
@@ -62,6 +67,8 @@ strcpy(char *dst, const char *src) {
 #endif /* __HAVE_ARCH_STRCPY */
 }
 
+/* strncpy：src 提前结束后 src 不再前进，于是持续写 '\0' 补满 len；
+   ⚠ 若 src 长度恰好等于 len，dst 末尾不会有 '\0'。 */
 /* *
  * strncpy - copies the first @len characters of @src to @dst. If the end of string @src
  * if found before @len characters have been copied, @dst is padded with '\0' until a
@@ -84,6 +91,7 @@ strncpy(char *dst, const char *src, size_t len) {
     return dst;
 }
 
+/* strcmp：字符不同或遇到 s1 结尾即停；(unsigned char) 强转保证按无符号语义比较。 */
 /* *
  * strcmp - compares the string @s1 and @s2
  * @s1:        string to be compared
@@ -111,6 +119,7 @@ strcmp(const char *s1, const char *s2) {
 #endif /* __HAVE_ARCH_STRCMP */
 }
 
+/* strncmp：停止条件为比满 n 个 / 遇结尾 / 出现不同；返回 0 只表示前 n 个字符相同。 */
 /* *
  * strncmp - compares up to @n characters of the string @s1 to those of the string @s2
  * @s1:        string to be compared
@@ -130,6 +139,7 @@ strncmp(const char *s1, const char *s2, size_t n) {
     return (n == 0) ? 0 : (int)((unsigned char)*s1 - (unsigned char)*s2);
 }
 
+/* strchr：找不到返回 NULL（也不会返回指向结尾 '\0' 的指针）。 */
 /* *
  * strchr - locates first occurrence of character in string
  * @s:        the input string
@@ -149,6 +159,7 @@ strchr(const char *s, char c) {
     return NULL;
 }
 
+/* strfind：与 strchr 相近，但找不到时返回指向结尾 '\0' 的指针，可当插入位置用。 */
 /* *
  * strfind - locates first occurrence of character in string
  * @s:        the input string
@@ -169,6 +180,7 @@ strfind(const char *s, char c) {
     return (char *)s;
 }
 
+/* strtol：跳空白 → 处理正负号 → 判断 0x/0 前缀 → 逐位转换（霍纳法则）；⚠ 不检测溢出。 */
 /* *
  * strtol - converts string to long integer
  * @s:        the input string that contains the representation of an integer number
@@ -212,6 +224,7 @@ strtol(const char *s, char **endptr, int base) {
     // plus/minus sign
     if (*s == '+') {
         s ++;
+/* 必须先判断 "0x" 再判断 "0"，否则 "0x10" 会被当成八进制而提前停止。 */
     }
     else if (*s == '-') {
         s ++, neg = 1;
@@ -257,6 +270,7 @@ strtol(const char *s, char **endptr, int base) {
     return (neg ? -val : val);
 }
 
+/* memset：按字节填充。本工程第二参数声明为 char（标准为 int），填 0 时无影响。 */
 /* *
  * memset - sets the first @n bytes of the memory area pointed by @s
  * to the specified value @c.
@@ -279,6 +293,7 @@ memset(void *s, char c, size_t n) {
 #endif /* __HAVE_ARCH_MEMSET */
 }
 
+/* memmove：允许重叠。src 在 dst 之前且两段相交时，改为从尾部逆向复制以免覆盖未读数据。 */
 /* *
  * memmove - copies the values of @n bytes from the location pointed by @src to
  * the memory area pointed by @dst. @src and @dst are allowed to overlap.
@@ -309,6 +324,7 @@ memmove(void *dst, const void *src, size_t n) {
 #endif /* __HAVE_ARCH_MEMMOVE */
 }
 
+/* memcpy：不允许重叠；不检查 '\0'，精确复制 n 个字节。 */
 /* *
  * memcpy - copies the value of @n bytes from the location pointed by @src to
  * the memory area pointed by @dst.
@@ -337,6 +353,7 @@ memcpy(void *dst, const void *src, size_t n) {
 #endif /* __HAVE_ARCH_MEMCPY */
 }
 
+/* memcmp：需显式长度、不在 '\0' 处停止，因此可用于比较含 0 字节的二进制数据。 */
 /* *
  * memcmp - compares two blocks of memory
  * @v1:        pointer to block of memory

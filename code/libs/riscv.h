@@ -1,8 +1,13 @@
+/* riscv.h —— RV64 体系结构定义。真正有用的是最前面手工写的部分（约 6~243 行）：
+   助记符别名、mstatus/sstatus 等位域、特权级/分页模式/中断号、页表项标志、CSR 访问宏。
+   后面 247~1346 行是随工具链带来的自动生成表（指令编码、CSR 编号、X-Macro 清单）。
+   全项目只有 printfmt.c 包含本文件，而它实际只用到 do_div 一个宏。 */
 // See LICENSE for license details.
 
 #ifndef __LIBS_RISCV_H__
 #define __LIBS_RISCV_H__
 
+/* 按 XLEN 选助记符与访存宽度：RV64 用 sd/ld/sllw，REGBYTES=8。 */
 #if __riscv_xlen == 64
 # define SLL32    sllw
 # define STORE    sd
@@ -16,8 +21,11 @@
 # define LWU      lw
 # define LOG_REGBYTES 2
 #endif
+/* 一个寄存器占 8 字节（REGBYTES = 1<<3）。 */
 #define REGBYTES (1 << LOG_REGBYTES)
 
+/* mstatus 位域：MIE 全局中断使能、MPP 记录 mret 返回的特权级、MPRV 改访存特权级、
+   VM 是分页模式字段、FS/XS 是浮点状态（本实验不用浮点）、SD 是“状态脏”汇总位。 */
 #define MSTATUS_UIE         0x00000001
 #define MSTATUS_SIE         0x00000002
 #define MSTATUS_HIE         0x00000004
@@ -38,6 +46,7 @@
 #define MSTATUS32_SD        0x80000000
 #define MSTATUS64_SD        0x8000000000000000
 
+/* sstatus = mstatus 中与 S 模式相关的子集。 */
 #define SSTATUS_UIE         0x00000001
 #define SSTATUS_SIE         0x00000002
 #define SSTATUS_UPIE        0x00000010
@@ -49,6 +58,7 @@
 #define SSTATUS32_SD        0x80000000
 #define SSTATUS64_SD        0x8000000000000000
 
+/* dcsr：调试控制/状态寄存器（本实验不实现调试，属附带定义）。 */
 #define DCSR_XDEBUGVER      (3U<<30)
 #define DCSR_NDRESET        (1<<29)
 #define DCSR_FULLRESET      (1<<28)
@@ -71,6 +81,7 @@
 #define DCSR_CAUSE_STEP     4
 #define DCSR_CAUSE_HALT     5
 
+/* mcontrol：硬件断点触发器字段（同上，随工具链附带）。 */
 #define MCONTROL_TYPE(xlen)    (0xfULL<<((xlen)-4))
 #define MCONTROL_DMODE(xlen)   (1ULL<<((xlen)-5))
 #define MCONTROL_MASKMAX(xlen) (0x3fULL<<((xlen)-11))
@@ -104,6 +115,7 @@
 #define MCONTROL_MATCH_MASK_LOW  4
 #define MCONTROL_MATCH_MASK_HIGH 5
 
+/* mip：中断挂起位。SSIP/HSIP/MSIP 软件中断、STIP/HTIP/MTIP 定时器、SEIP/HEIP/MEIP 外部中断。 */
 #define MIP_SSIP            (1 << IRQ_S_SOFT)
 #define MIP_HSIP            (1 << IRQ_H_SOFT)
 #define MIP_MSIP            (1 << IRQ_M_SOFT)
@@ -114,14 +126,17 @@
 #define MIP_HEIP            (1 << IRQ_H_EXT)
 #define MIP_MEIP            (1 << IRQ_M_EXT)
 
+/* sip = mip 中 S 模式关心的两位（软中断、定时器）。 */
 #define SIP_SSIP MIP_SSIP
 #define SIP_STIP MIP_STIP
 
+/* 特权级编码：0=U、1=S、3=M（2 保留给虚拟化扩展 H）。 */
 #define PRV_U 0
 #define PRV_S 1
 #define PRV_H 2
 #define PRV_M 3
 
+/* 分页模式编码：0=裸机、8=SV32、9=SV39（本实验用）、10=SV48。 */
 #define VM_MBARE 0
 #define VM_MBB   1
 #define VM_MBBID 2
@@ -129,6 +144,7 @@
 #define VM_SV39  9
 #define VM_SV48  10
 
+/* 中断原因编号（mcause 最高位为 1 时用）；与 mip 的位号一一对应，每 4 个一组。 */
 #define IRQ_U_SOFT   0
 #define IRQ_S_SOFT   1
 #define IRQ_H_SOFT   2
@@ -144,6 +160,7 @@
 #define IRQ_COP      12
 #define IRQ_HOST     13
 
+/* 平台固定地址。★ DRAM_BASE=0x80000000，内核被装到 +2MiB = 0x80200000（前 2MiB 给 OpenSBI）。 */
 #define DEFAULT_RSTVEC     0x00001000
 #define DEFAULT_NMIVEC     0x00001004
 #define DEFAULT_MTVEC      0x00001010
@@ -151,6 +168,7 @@
 #define EXT_IO_BASE        0x40000000
 #define DRAM_BASE          0x80000000
 
+/* 页表项标志：V 有效、R/W/X 权限、U 用户页、G 全局、A/D 由硬件访存时置位、SOFT 留给软件。 */
 // page table entry (PTE) fields
 #define PTE_V     0x001 // Valid
 #define PTE_R     0x002 // Read
@@ -164,6 +182,7 @@
 
 #define PTE_PPN_SHIFT 10
 
+/* 非叶子项（指向下一级页表）的判定规则：V=1 且 R=W=X=0。 */
 #define PTE_TABLE(PTE) (((PTE) & (PTE_V | PTE_R | PTE_W | PTE_X)) == PTE_V)
 
 #ifdef __riscv
@@ -180,14 +199,18 @@
 #define RISCV_PGSHIFT 12
 #define RISCV_PGSIZE (1 << RISCV_PGSHIFT)
 
+/* 以下含 C 代码，汇编阶段（__ASSEMBLER__）不可见。 */
 #ifndef __ASSEMBLER__
 
 #ifdef __GNUC__
 
+/* read_csr：用 csrr 读 CSR。reg 必须是汇编认识的 CSR 名（靠 #reg 字符串化写进汇编）。 */
 #define read_csr(reg) ({ unsigned long __tmp; \
   asm volatile ("csrr %0, " #reg : "=r"(__tmp)); \
   __tmp; })
 
+/* write/swap/set/clear_csr：对应 csrw / csrrw / csrrs / csrrc；
+   值为小于 32 的编译期常量时用立即数形式，否则用寄存器形式。 */
 #define write_csr(reg, val) ({ \
   if (__builtin_constant_p(val) && (unsigned long)(val) < 32) \
     asm volatile ("csrw " #reg ", %0" :: "i"(val)); \
@@ -215,12 +238,15 @@
     asm volatile ("csrrc %0, " #reg ", %1" : "=r"(__tmp) : "r"(bit)); \
   __tmp; })
 
+/* 三个计数器读取封装：rdtime 时间、rdcycle 时钟周期数、rdinstret 已退休指令数。 */
 #define rdtime() read_csr(time)
 #define rdcycle() read_csr(cycle)
 #define rdinstret() read_csr(instret)
 
 #endif
 
+/* do_div(n,base)：返回余数，同时把商写回 n（所以第一个参数必须是左值）。
+   printfmt 的 printnum 靠它逐位取数字；强转 unsigned long 以保证按无符号除法。 */
 #define do_div(n, base)                              \
     ({                                               \
         int __res;                                   \
@@ -229,8 +255,10 @@
         __res;                                       \
     })
 
+/* barrier：fence 内存屏障，阻止编译器与 CPU 调换屏障两侧的访存顺序。 */
 #define barrier() __asm__ __volatile__ ("fence" ::: "memory")
 
+/* lcr3：切页表基址（sptbr 是旧规范名，新规范叫 satp）；本阶段未启用分页，不会被调用。 */
 static inline void
 lcr3(unsigned int cr3) {
     write_csr(sptbr, cr3 >> RISCV_PGSHIFT);
@@ -241,6 +269,9 @@ lcr3(unsigned int cr3) {
 #endif
 
 #endif
+/* 以下 247~704 行是 parse-opcodes 自动生成的指令编码表：识别规则为
+   (机器码 & MASK_X) == MATCH_X 即为 X 指令。本工程没有任何代码引用它们，
+   故只按功能分组标注，不逐条改动机器生成的内容。 */
 /* Automatically generated by parse-opcodes */
 #ifndef RISCV_ENCODING_H
 #define RISCV_ENCODING_H
@@ -702,6 +733,8 @@ lcr3(unsigned int cr3) {
 #define MASK_CUSTOM3_RD_RS1  0x707f
 #define MATCH_CUSTOM3_RD_RS1_RS2 0x707b
 #define MASK_CUSTOM3_RD_RS1_RS2  0x707f
+/* CSR 编号表（705~895 行）。地址编码：高 2 位为 11 表示只读，否则 [9:8] 表示所需最低特权级。
+   例：0x300=mstatus（M 级可读写）、0xC00=cycle（只读计数器）、0x180=sptbr（S 级）。 */
 #define CSR_FFLAGS 0x1
 #define CSR_FRM 0x2
 #define CSR_FCSR 0x3
@@ -893,6 +926,8 @@ lcr3(unsigned int cr3) {
 #define CSR_MHPMCOUNTER29H 0xb9d
 #define CSR_MHPMCOUNTER30H 0xb9e
 #define CSR_MHPMCOUNTER31H 0xb9f
+/* 异常原因编号（896~907 行）：0 取指未对齐、2 非法指令、3 断点、5 载入出错、7 存储出错，
+   8~11 依次是用户/超级/虚拟/机器态的 ecall（OpenSBI 靠它区分 ecall 来自哪一级）。 */
 #define CAUSE_MISALIGNED_FETCH 0x0
 #define CAUSE_FAULT_FETCH 0x1
 #define CAUSE_ILLEGAL_INSTRUCTION 0x2
@@ -906,6 +941,9 @@ lcr3(unsigned int cr3) {
 #define CAUSE_HYPERVISOR_ECALL 0xa
 #define CAUSE_MACHINE_ECALL 0xb
 #endif
+/* DECLARE_INSN / DECLARE_CSR / DECLARE_CAUSE 是 X-Macro 表：
+   先 #define 该宏再包含本文件，同一张表就能反复展开成名字数组、枚举或反汇编表。
+   ⚠ 本工程从未定义这三个宏，因此 909~1346 行在预处理阶段被整段删除，不进镜像。 */
 #ifdef DECLARE_INSN
 DECLARE_INSN(beq, MATCH_BEQ, MASK_BEQ)
 DECLARE_INSN(bne, MATCH_BNE, MASK_BNE)

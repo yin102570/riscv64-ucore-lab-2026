@@ -1,4 +1,7 @@
+/* printfmt.c —— 格式化引擎：只负责解析格式串，输出目标由调用者的 putch 回调决定。
+   支持 %c %s %d %u %o %x %p %% 与 %e（打印错误码文字）；宽度/填充只对数字生效。 */
 #include <defs.h>
+/* 包含 riscv.h 是为了其中的 do_div 宏——printnum 逐位取数字要靠它。 */
 #include <riscv.h>
 #include <error.h>
 #include <stdio.h>
@@ -14,7 +17,9 @@
  * so that -E_NO_MEM and E_NO_MEM are equivalent.
  * */
 
+/* 错误码→文字对照表。下标就是 error.h 的错误码，两处必须同步修改。 */
 static const char * const error_string[MAXERROR + 1] = {
+/* [0] 是占位 NULL；[E_XXX]= 写法是 C99 指定初始化器，码不连续也不会填错位置。 */
     [0]                        NULL,
     [E_UNSPECIFIED]            "unspecified error",
     [E_BAD_PROC]            "bad process",
@@ -33,6 +38,7 @@ static const char * const error_string[MAXERROR + 1] = {
  * @width:         maximum number of digits, if the actual width is less than @width, use @padc instead
  * @padc:        character that padded on the left if the actual width is less than @width
  * */
+/* printnum：递归打印（先高位后低位）。do_div 返回最低位数字，并把商写回 result。 */
 static void
 printnum(void (*putch)(int, void*), void *putdat,
         unsigned long long num, unsigned base, int width, int padc) {
@@ -40,6 +46,7 @@ printnum(void (*putch)(int, void*), void *putdat,
     unsigned mod = do_div(result, base);
 
     // first recursively print all preceding (more significant) digits
+/* 还有更高位就带 width-1 递归；否则先补足宽度，再打印当前这一位。 */
     if (num >= base) {
         printnum(putch, putdat, result, base, width - 1, padc);
     } else {
@@ -56,6 +63,7 @@ printnum(void (*putch)(int, void*), void *putdat,
  * @ap:            a varargs list pointer
  * @lflag:        determines the size of the vararg that @ap points to
  * */
+/* getuint：按 lflag（0 / 1 / ≥2 对应 %u / %lu / %llu）取不同宽度的无符号值。 */
 static unsigned long long
 getuint(va_list *ap, int lflag) {
     if (lflag >= 2) {
@@ -74,6 +82,7 @@ getuint(va_list *ap, int lflag) {
  * @ap:            a varargs list pointer
  * @lflag:        determines the size of the vararg that @ap points to
  * */
+/* getint：有符号版。不能复用 getuint，否则负数会被当成巨大的正数。 */
 static long long
 getint(va_list *ap, int lflag) {
     if (lflag >= 2) {
@@ -93,6 +102,7 @@ getint(va_list *ap, int lflag) {
  * @putdat:        used by @putch function
  * @fmt:        the format string to use
  * */
+/* printfmt：变参入口，直接转交 vprintfmt。 */
 void
 printfmt(void (*putch)(int, void*), void *putdat, const char *fmt, ...) {
     va_list ap;
@@ -102,6 +112,7 @@ printfmt(void (*putch)(int, void*), void *putdat, const char *fmt, ...) {
     va_end(ap);
 }
 
+/* vprintfmt：全部格式解析都在这里。外层循环反复处理“一段普通文本 + 一个格式项”。 */
 /* *
  * vprintfmt - format a string and print it by using putch, it's called with a va_list
  * instead of a variable number of arguments
@@ -121,6 +132,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
     int base, width, precision, lflag, altflag;
 
     while (1) {
+/* 原样输出普通字符直到 '%'，'\0' 即结束。强转 unsigned char 可避免高位字节被判成负数。 */
         while ((ch = *(unsigned char *)fmt ++) != '%') {
             if (ch == '\0') {
                 return;
@@ -133,9 +145,11 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
         width = precision = -1;
         lflag = altflag = 0;
 
+/* reswitch：每读完一个修饰符就跳回这里，继续读下一个。 */
     reswitch:
         switch (ch = *(unsigned char *)fmt ++) {
 
+/* '-' 只是把填充字符换成 '-'：对 %s 是左对齐，对数字则是用 '-' 左填充（%-5d → ----3）。 */
         // flag to pad on the right
         case '-':
             padc = '-';
@@ -146,6 +160,8 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
             padc = '0';
             goto reswitch;
 
+/* 宽度先存进 precision，由 process_precision 决定它是宽度还是精度；
+   case '1' ... '9' 是 GNU 区间 case 扩展，标准 C 不支持。 */
         // width field
         case '1' ... '9':
             for (precision = 0; ; ++ fmt) {
@@ -170,12 +186,15 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
             altflag = 1;
             goto reswitch;
 
+/* process_precision：宽度尚未确定时把它当宽度；其余留在 precision。
+   本实现里精度对整数无效（printnum 只收宽度），只有 %s 会用 precision 截断。 */
         process_precision:
             if (width < 0)
                 width = precision, precision = -1;
             goto reswitch;
 
         // long flag (doubled for long long)
+/* 'l' 出现 1 次表示 long，2 次（ll）表示 long long，决定从变参里取多宽。 */
         case 'l':
             lflag ++;
             goto reswitch;
@@ -186,6 +205,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
             break;
 
         // error message
+/* %e：错误码取绝对值后查 error_string；越界或表项为空时退化成打印 "error N"。 */
         case 'e':
             err = va_arg(ap, int);
             if (err < 0) {
@@ -200,6 +220,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
             break;
 
         // string
+/* %s：NULL 打 "(null)"；宽度用于补齐、precision 用于截断；带 '#' 时不可打印字符变 '?'。 */
         case 's':
             if ((p = va_arg(ap, char *)) == NULL) {
                 p = "(null)";
@@ -223,6 +244,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
             break;
 
         // (signed) decimal
+/* %d：先输出 '-' 再取相反数，之后与其它进制共用 number 出口。 */
         case 'd':
             num = getint(&ap, lflag);
             if ((long long)num < 0) {
@@ -253,6 +275,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
             goto number;
 
         // (unsigned) hexadecimal
+/* %x 与 %u/%o/%p 共用 number 出口：printnum 按 (num, base, width, padc) 输出。 */
         case 'x':
             num = getuint(&ap, lflag);
             base = 16;
@@ -265,6 +288,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
             putch(ch, putdat);
             break;
 
+/* 未识别的转义序列：回退 fmt，使 '%' 与那个未知字符都被原样输出。 */
         // unrecognized escape sequence - just print it literally
         default:
             putch('%', putdat);
@@ -276,6 +300,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
 }
 
 /* sprintbuf is used to save enough information of a buffer */
+/* sprintbuf：面向内存的输出状态；cnt 统计“本应写入”的长度。 */
 struct sprintbuf {
     char *buf;            // address pointer points to the first unused memory
     char *ebuf;            // points the end of the buffer
@@ -288,6 +313,7 @@ struct sprintbuf {
  * @b:            the buffer to place the character @ch
  * */
 static void
+/* cnt 无条件自增，只在有空间时才真正写——这样 snprintf 才能返回截断前的长度。 */
 sprintputch(int ch, struct sprintbuf *b) {
     b->cnt ++;
     if (b->buf < b->ebuf) {
@@ -302,6 +328,7 @@ sprintputch(int ch, struct sprintbuf *b) {
  * @fmt:        the format string to use
  * */
 int
+/* snprintf：转交 vsnprintf。 */
 snprintf(char *str, size_t size, const char *fmt, ...) {
     va_list ap;
     int cnt;
@@ -326,14 +353,17 @@ snprintf(char *str, size_t size, const char *fmt, ...) {
  * Or you probably want snprintf() instead.
  * */
 int
+/* vsnprintf：ebuf 取 str+size-1，给结尾 '\0' 永久留一字节；容量不足返回 -E_INVAL。 */
 vsnprintf(char *str, size_t size, const char *fmt, va_list ap) {
     struct sprintbuf b = {str, str + size - 1, 0};
     if (str == NULL || b.buf > b.ebuf) {
         return -E_INVAL;
     }
     // print the string to the buffer
+/* 复用同一个引擎，只把输出目标换成 sprintputch。 */
     vprintfmt((void*)sprintputch, &b, fmt, ap);
     // null terminate the buffer
+/* 写终止符；返回“本应写入”的字符数，可用于判断是否被截断。 */
     *b.buf = '\0';
     return b.cnt;
 }
