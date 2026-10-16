@@ -1,0 +1,324 @@
+================================================================================
+page_init() 内联反汇编取证          lab2 / 任务 1-1 / 学号 2410665
+================================================================================
+生成命令（在 WSL: /home/asdf1/lab2work/lab2 下执行）
+  riscv64-unknown-elf-objdump -d --no-show-raw-insn bin/kernel \
+      | awk '/<pmm_init>:/{f=1} f{print} f&&/^$/{exit}'
+工具链   GNU objdump (Binutils) 2.47.20260726 / riscv64-unknown-elf-
+构建    默认构建：pmm_manager = &best_fit_pmm_manager（pmm.c:52-54），带调试信息
+镜像     bin/kernel（镜像本体 24 600 B → bin/ucore.img），见 logs/build/default-build.txt
+
+为什么这份清单里看不到 page_init？
+  kern/mm/pmm.c:99 里它是 static void page_init(void)。GCC 判定它只有一个调用点
+  （pmm_init 内 pmm.c:171），于是整体内联；riscv64-unknown-elf-nm bin/kernel 只剩
+  T pmm_init (0xffffffffc0201044)。所以下文 0x1084~0x1172 这一段，就是 page_init()
+  被编译出来的全部机器码。
+
+struct Page 内存布局（kern/mm/memlayout.h:4-9，用于认领下面的偏移量）
+  +0   int          ref         4 B     （后补 4 B 对齐填充）
+  +8   uint64_t     flags       8 B     PG_reserved = bit0
+  +16  unsigned int property    4 B     （后补 4 B 对齐填充）
+  +24  list_entry_t page_link  16 B     next@+24  prev@+32
+  +40  = sizeof(struct Page)    <-- 与 GDB 实测 sizeof(struct Page)=40 完全一致（图 EV12）
+
+标注约定
+  [①]~[⑥] 与 pmm.c:83-158 的 page_init() 六步注释一一对应；
+  [#] 表示编译器把独立的 static 函数 / 宏也内联进来的位置；
+  panic 的 __LINE__ 直接从二进制里读出来核对过，写在注释里。
+================================================================================
+
+
+ffffffffc0201044 <pmm_init>:
+# ======================= pmm_init() 实体开始 =======================
+# static 链：pmm_init (0x1044) 里含 page_init() [0x1084-0x1172] 与
+#           check_alloc_page() [0x1174-0x1178] 两个 static 函数的全部代码。
+ffffffffc0201044:	auipc	a5,0x1
+#   auipc a5,0x1 / addi a5,a5,-188 : a5 = &best_fit_pmm_manager
+#       （默认构建走 pmm.c:52-54 的 #else 分支；buddy 构建改宏即可，见 3.2 表）
+ffffffffc0201048:	addi	a5,a5,-188 # ffffffffc0201f88 <best_fit_pmm_manager>
+ffffffffc020104c:	ld	a1,0(a5)
+#   pmm_manager = a5   <-- init_pmm_manager() 的实质动作（pmm.c:48-56）
+ffffffffc020104e:	addi	sp,sp,-80
+ffffffffc0201050:	sd	ra,72(sp)
+ffffffffc0201052:	sd	s0,64(sp)
+ffffffffc0201054:	sd	s1,56(sp)
+ffffffffc0201056:	sd	s4,32(sp)
+ffffffffc0201058:	sd	s2,48(sp)
+ffffffffc020105a:	sd	s3,40(sp)
+ffffffffc020105c:	sd	s5,24(sp)
+ffffffffc020105e:	sd	s6,16(sp)
+ffffffffc0201060:	auipc	s0,0x5
+ffffffffc0201064:	addi	s0,s0,-24 # ffffffffc0206048 <pmm_manager>
+ffffffffc0201068:	auipc	a0,0x1
+ffffffffc020106c:	addi	a0,a0,-984 # ffffffffc0201c90 <etext+0x592>
+ffffffffc0201070:	sd	a5,0(s0)
+ffffffffc0201072:	jal	ffffffffc0200148 <cprintf>
+#   cprintf("memory management: %s\n", pmm_manager->name)        (rodata 0x1c90)
+ffffffffc0201076:	ld	a5,0(s0)
+ffffffffc0201078:	auipc	s1,0x5
+ffffffffc020107c:	addi	s1,s1,-24 # ffffffffc0206060 <va_pa_offset>
+ffffffffc0201080:	ld	a5,8(a5)
+ffffffffc0201082:	jalr	a5
+#   pmm_manager->init()      （struct pmm_manager 偏移 8；先间接取函数指针再 jalr）
+#   ---- init_pmm_manager() 结束，下面进入 page_init() 内联体 ----
+
+# ============== 以下 0x1084-0x1172 为 page_init() 内联体 ==============
+#                源码：kern/mm/pmm.c:99-158
+ffffffffc0201084:	li	a5,-3
+#   li a5,-3 ; slli a5,a5,0x1e : a5 = 0xFFFFFFFF40000000 = PHYSICAL_MEMORY_OFFSET
+#   va_pa_offset = PHYSICAL_MEMORY_OFFSET          [① pmm.c:103]
+#   注意这是一条“常量立即数”直接落内存，没有任何运行时计算 —— 线性映射偏移是
+#   编译期就钉死的，运行期 PADDR / KADDR 全靠它。
+ffffffffc0201086:	slli	a5,a5,0x1e
+ffffffffc0201088:	sd	a5,0(s1)
+ffffffffc020108a:	jal	ffffffffc0200560 <get_memory_base>
+ffffffffc020108e:	mv	s4,a0
+ffffffffc0201090:	jal	ffffffffc020056a <get_memory_size>
+#   mem_base = get_memory_base() -> s4              [② pmm.c:106]（DTB 探测结果，见 EV10）
+#   mem_size = get_memory_size() -> a0              [② pmm.c:107]
+ffffffffc0201094:	seqz	a5,s4
+ffffffffc0201098:	seqz	a4,a0
+ffffffffc020109c:	or	a5,a5,a4
+ffffffffc020109e:	bnez	a5,ffffffffc020123a <pmm_init+0x1f6>
+#   seqz(a5,s4) | seqz(a4,a0) : (mem_base==0) || (mem_size==0)
+#   bnez -> 0x123a  __panic("page_init: invalid physical memory info from DTB")   pmm.c:109
+ffffffffc02010a2:	add	s6,s4,a0
+#   pend = mem_base + mem_size -> s6
+ffffffffc02010a6:	lui	s5,0xfffff
+ffffffffc02010a8:	and	s3,s6,s5
+#   s5 = 0xFFFFF000 ; s3 = s6 & s5 : pend = ROUNDDOWN(pend, PGSIZE)        [pmm.c:115]
+#   末尾不足一页的残段被砍掉 —— 它凑不满一个物理页，不能进分配器。
+ffffffffc02010ac:	bgeu	s4,s3,ffffffffc0201222 <pmm_init+0x1de>
+#   bgeu s4,s3 -> 0x1222  __panic("page_init: physical memory range is empty")   pmm.c:117
+ffffffffc02010b0:	srli	a5,s3,0xc
+#   npage = pend >> 12 = PPN(pend)  -> a5           [③ pmm.c:121]
+ffffffffc02010b4:	auipc	a4,0x5
+ffffffffc02010b8:	sd	a5,-76(a4) # ffffffffc0206068 <npage>
+#   npage 写回全局 0xffffffffc0206068（GDB 实测 npage = 0x88000 = 557056，见 EV12）
+ffffffffc02010bc:	lui	s2,0x80
+#   s2 = 0x80000 = nbase = DRAM_BASE / PGSIZE（DRAM_BASE = 0x80000000）
+ffffffffc02010c0:	bgeu	s2,a5,ffffffffc020120a <pmm_init+0x1c6>
+#   bgeu s2,a5 -> 0x120a  __panic("page_init: no manageable physical page")      pmm.c:123
+ffffffffc02010c4:	sd	a0,8(sp)
+ffffffffc02010c6:	auipc	a0,0x1
+ffffffffc02010ca:	addi	a0,a0,-894 # ffffffffc0201d48 <etext+0x64a>
+ffffffffc02010ce:	jal	ffffffffc0200148 <cprintf>
+ffffffffc02010d2:	ld	a1,8(sp)
+#   cprintf("physical memory map:\n")                                       (pmm.c:126)
+ffffffffc02010d4:	addi	a3,s6,-1
+ffffffffc02010d8:	mv	a2,s4
+ffffffffc02010da:	auipc	a0,0x1
+ffffffffc02010de:	addi	a0,a0,-890 # ffffffffc0201d60 <etext+0x662>
+ffffffffc02010e2:	jal	ffffffffc0200148 <cprintf>
+#   cprintf("  memory: 0x%016lx, [0x%016lx, 0x%016lx].\n")                 (pmm.c:127-128)
+#   a2 = mem_base, a3 = mem_base+mem_size-1（闭区间右端，源码里就写了 -1）
+ffffffffc02010e6:	auipc	a3,0x6
+#   a3 = ROUNDUP((uintptr_t)end, PGSIZE) = pages_va         [④ pmm.c:131]
+#   end 是 tools/kernel.ld 定义的镜像末尾符号；实测 VA 0xffffffffc0206078（EV12）
+ffffffffc02010ea:	addi	a3,a3,-111 # ffffffffc0207077 <end+0xfff>
+ffffffffc02010ee:	and	a3,a3,s5
+#   a3 = pages_va & 0xFFFFF000 = pages_pa = PADDR(pages_va)         [pmm.c:132]
+#   编译器把 PADDR 宏里的 kva < KERNBASE 判断也内联了（下一行 lui 0xc0200）。
+ffffffffc02010f2:	lui	a5,0xc0200
+ffffffffc02010f6:	bltu	a3,a5,ffffffffc02011f2 <pmm_init+0x1ae>
+#   bltu a3,KERNBASE -> 0x11f2  __panic("PADDR called with invalid kva %08lx")
+#       报的文件/行是宏展开点：kern/mm/pmm.c:132
+ffffffffc02010fa:	auipc	a6,0x5
+ffffffffc02010fe:	ld	a6,-146(a6) # ffffffffc0206068 <npage>
+#   a6 = npage（全局重读）  a2 = va_pa_offset（全局重读）
+ffffffffc0201102:	ld	a2,0(s1)
+ffffffffc0201104:	sub	a5,a6,s2
+#   a5 = npage - nbase = pages_num  <-- pages[] 数组项数（只覆盖真实存在的物理页）
+ffffffffc0201108:	slli	a4,a5,0x2
+#   a4 = a5*4 + a5 = pages_num*5 ; <<3 -> pages_num*40
+#   这里 40 就是 sizeof(struct Page)，被编译器折叠成 *5<<3 的乘法链。
+ffffffffc020110c:	add	a4,a4,a5
+ffffffffc020110e:	slli	a4,a4,0x3
+ffffffffc0201110:	add	a4,a4,a3
+#   a4 = pages_pa + pages_num*40 = pages_end_pa                     [pmm.c:134]
+ffffffffc0201112:	sub	a2,a4,a2
+#   a2 = pages_end_pa - va_pa_offset（换算回物理地址后与 pend 比较）
+ffffffffc0201116:	bltu	s3,a2,ffffffffc02011da <pmm_init+0x196>
+#   bltu s3,a2 -> 0x11da  __panic("page_init: page descriptor array does not fit in memory")
+#       pmm.c:136 —— 描述符数组（实测 32768 项 × 40 B ≈ 1.25 MiB）必须装得下。
+ffffffffc020111a:	auipc	a1,0x5
+#   pages = (struct Page *)pages_va -> 全局 0xffffffffc0206070           [pmm.c:138]
+ffffffffc020111e:	sd	a3,-170(a1) # ffffffffc0206070 <pages>
+ffffffffc0201122:	mv	a0,a3
+#   a0 = a3 = pages_va（循环游标）
+ffffffffc0201124:	beqz	a5,ffffffffc0201142 <pmm_init+0xfe>
+ffffffffc0201126:	li	a1,1
+
+# ---- ⑤ 保留位初始化循环  for (i = 0; i < pages_num; i++)   pmm.c:143-149 ----
+ffffffffc0201128:	addi	a5,a3,24
+#   a5 = a3 + 24 = &pages[i].page_link（供 list_init 用）
+ffffffffc020112c:	sw	zero,16(a3)
+#   sw zero,16(a3)  -> pages[i].property = 0        （偏移 16，4 字节）
+#   sw zero, 0(a3)  -> pages[i].ref      = 0        <-- set_page_ref(&pages[i], 0)
+ffffffffc0201130:	sw	zero,0(a3)
+ffffffffc0201134:	sd	a1,8(a3)
+#   sd 1,8(a3)      -> pages[i].flags    = 1        <-- SetPageReserved()
+#       PG_reserved 是 bit0，所以置位后整个 64 位字就是 1。
+ffffffffc0201136:	sd	a5,32(a3)
+ffffffffc0201138:	sd	a5,24(a3)
+#   sd a5,32(a3) / sd a5,24(a3) -> page_link.next = page_link.prev = &page_link
+#                                   <-- list_init(&pages[i].page_link)
+ffffffffc020113a:	addi	a3,a3,40
+#   addi a3,a3,40 —— 步长 = sizeof(struct Page) = 40，与 GDB 的 sizeof 实测吻合。
+ffffffffc020113e:	bne	a3,a4,ffffffffc0201128 <pmm_init+0xe4>
+#   bne a3,a4 回 0x1128，直到走完 pages_num 项
+
+# ---- ⑥ 空闲区计算 + 交棒给页级分配器  pmm.c:152-157 ----
+ffffffffc0201142:	lui	a5,0x1
+ffffffffc0201144:	addi	a5,a5,-1 # fff <kern_entry-0xffffffffc01ff001>
+ffffffffc0201146:	add	a5,a5,a2
+ffffffffc0201148:	lui	a4,0xfffff
+#   a4 = 0xFFFFF000（页掩码）；a5 = free_start_pa = ROUNDUP(pages_end_pa, PGSIZE)
+ffffffffc020114a:	and	a5,a5,a4
+ffffffffc020114c:	bgeu	a5,s3,ffffffffc02011cc <pmm_init+0x188>
+#   bgeu a5,s3 -> 0x11cc：free_start_pa >= pend
+#       即“一个完整空闲页都剩不下”时，打印 page_init: warning: no free page available
+#       后直接返回（不调用 init_memmap —— 把空列表交给分配器没有意义）。
+ffffffffc0201150:	srli	a3,a5,0xc
+#   a3 = PPN(free_start_pa)；越界则进 0x126c __panic("pa2page called with invalid pa")
+#       报文件 kern/mm/pmm.h:106 —— pa2page 内联进来的（pmm.h:104-108）。
+ffffffffc0201154:	bgeu	a3,a6,ffffffffc020126c <pmm_init+0x228>
+ffffffffc0201158:	lui	a4,0xfff80
+#   a3 = ppn + 0xfff80 = ppn - nbase   <-- pa2page 的 &pages[PPN(pa) - nbase]
+ffffffffc020115c:	ld	a2,0(s0)
+ffffffffc020115e:	add	a3,a3,a4
+ffffffffc0201160:	slli	a4,a3,0x2
+#   a4 = (ppn-nbase)*40 ; a0 = pages + i*40 = pa2page(free_start_pa)
+ffffffffc0201164:	add	a4,a4,a3
+ffffffffc0201166:	ld	a3,16(a2)
+#   a3 = pmm_manager->init_memmap   （struct pmm_manager 偏移 16）
+ffffffffc0201168:	sub	a1,s3,a5
+#   a1 = (pend - free_start_pa) >> 12 = 空闲页数
+ffffffffc020116c:	slli	a4,a4,0x3
+ffffffffc020116e:	srli	a1,a1,0xc
+ffffffffc0201170:	add	a0,a0,a4
+ffffffffc0201172:	jalr	a3
+#   init_memmap(pa2page(free_start_pa), (pend-free_start_pa)/PGSIZE)      pmm.c:157
+#   实测 free_start_pa = 0x80347000 → ppn = 0x80347，页数 = 31929 = nr_free（见 EV12）
+#   ---- page_init() 内联体到此结束 ----
+
+# ---- check_alloc_page()（static，pmm.c:189-192，同样被内联）  pmm.c:174 ----
+ffffffffc0201174:	ld	a5,0(s0)
+ffffffffc0201176:	ld	a5,48(a5)
+#   a5 = pmm_manager->check()   （struct pmm_manager 偏移 48）
+ffffffffc0201178:	jalr	a5
+ffffffffc020117a:	auipc	a0,0x1
+#   cprintf("check_alloc_page() succeeded!\n")                      (pmm.c:191)
+ffffffffc020117e:	addi	a0,a0,-810 # ffffffffc0201e50 <etext+0x752>
+ffffffffc0201182:	jal	ffffffffc0200148 <cprintf>
+ffffffffc0201186:	auipc	a1,0x4
+#   satp_virtual  = (pte_t *)boot_page_table_sv39                   (pmm.c:184)
+#   satp_physical = PADDR(satp_virtual)                             (pmm.c:185)
+ffffffffc020118a:	addi	a1,a1,-390 # ffffffffc0205000 <boot_page_table_sv39>
+ffffffffc020118e:	auipc	a5,0x5
+ffffffffc0201192:	sd	a1,-310(a5) # ffffffffc0206058 <satp_virtual>
+ffffffffc0201196:	lui	a5,0xc0200
+ffffffffc020119a:	bltu	a1,a5,ffffffffc0201252 <pmm_init+0x20e>
+#   bltu -> 0x1252  __panic("PADDR called with invalid kva %08lx")   pmm.c:185
+ffffffffc020119e:	ld	a5,0(s1)
+ffffffffc02011a0:	ld	s0,64(sp)
+ffffffffc02011a2:	ld	ra,72(sp)
+ffffffffc02011a4:	ld	s1,56(sp)
+ffffffffc02011a6:	ld	s2,48(sp)
+ffffffffc02011a8:	ld	s3,40(sp)
+ffffffffc02011aa:	ld	s4,32(sp)
+ffffffffc02011ac:	ld	s5,24(sp)
+ffffffffc02011ae:	ld	s6,16(sp)
+ffffffffc02011b0:	sub	a3,a1,a5
+#   a3 = satp_virtual - va_pa_offset -> 全局 satp_physical
+#   实测 satp_virtual = 0xffffffffc0205000 → satp_physical = 0x80205000（见 EV6/EV7）
+ffffffffc02011b4:	auipc	a5,0x5
+ffffffffc02011b8:	sd	a3,-356(a5) # ffffffffc0206050 <satp_physical>
+ffffffffc02011bc:	auipc	a0,0x1
+ffffffffc02011c0:	addi	a0,a0,-844 # ffffffffc0201e70 <etext+0x772>
+ffffffffc02011c4:	mv	a2,a3
+ffffffffc02011c6:	addi	sp,sp,80
+ffffffffc02011c8:	j	ffffffffc0200148 <cprintf>
+#   尾调用 cprintf("satp virtual address: 0x%016lx\nsatp physical address: ...\n")
+#   pmm_init() 到此结束（ret 由 cprintf 的尾调用代为完成）。
+ffffffffc02011cc:	auipc	a0,0x1
+
+# ~~~~~~~~~~~~~~~~~~~~~~~ 以下为冷路径（panic / 告警） ~~~~~~~~~~~~~~~~~~~~~~~
+# 0x11cc  cprintf("page_init: warning: no free page available\n")               pmm.c:154
+ffffffffc02011d0:	addi	a0,a0,-988 # ffffffffc0201df0 <etext+0x6f2>
+ffffffffc02011d4:	jal	ffffffffc0200148 <cprintf>
+ffffffffc02011d8:	j	ffffffffc0201174 <pmm_init+0x130>
+ffffffffc02011da:	auipc	a2,0x1
+# 0x11da  __panic("kern/mm/pmm.c", 136, "page_init: page descriptor array does not fit in memory")
+ffffffffc02011de:	addi	a2,a2,-1058 # ffffffffc0201db8 <etext+0x6ba>
+ffffffffc02011e2:	li	a1,136
+ffffffffc02011e6:	auipc	a0,0x1
+ffffffffc02011ea:	addi	a0,a0,-1286 # ffffffffc0201ce0 <etext+0x5e2>
+ffffffffc02011ee:	jal	ffffffffc02001c8 <__panic>
+ffffffffc02011f2:	auipc	a2,0x1
+# 0x11f2  __panic("kern/mm/pmm.c", 132, "PADDR called with invalid kva %08lx")   <- pmm.c:132 的 PADDR
+ffffffffc02011f6:	addi	a2,a2,-1122 # ffffffffc0201d90 <etext+0x692>
+ffffffffc02011fa:	li	a1,132
+ffffffffc02011fe:	auipc	a0,0x1
+ffffffffc0201202:	addi	a0,a0,-1310 # ffffffffc0201ce0 <etext+0x5e2>
+ffffffffc0201206:	jal	ffffffffc02001c8 <__panic>
+ffffffffc020120a:	auipc	a2,0x1
+# 0x120a  __panic("kern/mm/pmm.c", 123, "page_init: no manageable physical page")
+ffffffffc020120e:	addi	a2,a2,-1258 # ffffffffc0201d20 <etext+0x622>
+ffffffffc0201212:	li	a1,123
+ffffffffc0201216:	auipc	a0,0x1
+ffffffffc020121a:	addi	a0,a0,-1334 # ffffffffc0201ce0 <etext+0x5e2>
+ffffffffc020121e:	jal	ffffffffc02001c8 <__panic>
+ffffffffc0201222:	auipc	a2,0x1
+# 0x1222  __panic("kern/mm/pmm.c", 117, "page_init: physical memory range is empty")
+ffffffffc0201226:	addi	a2,a2,-1330 # ffffffffc0201cf0 <etext+0x5f2>
+ffffffffc020122a:	li	a1,117
+ffffffffc020122e:	auipc	a0,0x1
+ffffffffc0201232:	addi	a0,a0,-1358 # ffffffffc0201ce0 <etext+0x5e2>
+ffffffffc0201236:	jal	ffffffffc02001c8 <__panic>
+ffffffffc020123a:	auipc	a2,0x1
+# 0x123a  __panic("kern/mm/pmm.c", 109, "page_init: invalid physical memory info from DTB")
+ffffffffc020123e:	addi	a2,a2,-1426 # ffffffffc0201ca8 <etext+0x5aa>
+ffffffffc0201242:	li	a1,109
+ffffffffc0201246:	auipc	a0,0x1
+ffffffffc020124a:	addi	a0,a0,-1382 # ffffffffc0201ce0 <etext+0x5e2>
+ffffffffc020124e:	jal	ffffffffc02001c8 <__panic>
+ffffffffc0201252:	mv	a3,a1
+# 0x1252  __panic("kern/mm/pmm.c", 185, "PADDR called with invalid kva %08lx")   <- pmm.c:185 的 PADDR
+ffffffffc0201254:	auipc	a2,0x1
+ffffffffc0201258:	addi	a2,a2,-1220 # ffffffffc0201d90 <etext+0x692>
+ffffffffc020125c:	li	a1,185
+ffffffffc0201260:	auipc	a0,0x1
+ffffffffc0201264:	addi	a0,a0,-1408 # ffffffffc0201ce0 <etext+0x5e2>
+ffffffffc0201268:	jal	ffffffffc02001c8 <__panic>
+ffffffffc020126c:	auipc	a2,0x1
+# 0x126c  __panic("kern/mm/pmm.h", 106, "pa2page called with invalid pa")        <- pmm.h:106 的 pa2page
+
+ffffffffc0201270:	addi	a2,a2,-1100 # ffffffffc0201e20 <etext+0x722>
+ffffffffc0201274:	li	a1,106
+ffffffffc0201278:	auipc	a0,0x1
+ffffffffc020127c:	addi	a0,a0,-1080 # ffffffffc0201e40 <etext+0x742>
+ffffffffc0201280:	jal	ffffffffc02001c8 <__panic>
+
+================================================================================
+结论
+================================================================================
+1) 0x1084-0x1172 这一段机器码，就是 page_init() 在默认构建下的全部实体；六步语义
+   （① va_pa_offset → ② DTB 区间 → ③ npage → ④ 描述符数组 → ⑤ 全部置 Reserved →
+   ⑥ 只把“扣掉内核镜像与描述符数组之后的完整空闲页”交棒）在指令层面一一对得上，
+   没有多余分支。
+2) 编译器把 sizeof(struct Page) 折叠成 *5<<3，并把 PADDR / pa2page / panic 全部内联，
+   说明这些判断在运行期是零开销的常数比较 —— 这也是 lab2 框架代码能放心把 PADDR
+   写成宏的底气。
+3) 反汇编里读到的最关键两个常量：
+      PHYSICAL_MEMORY_OFFSET = 0xFFFFFFFF40000000（立即数构造，不查表）
+      sizeof(struct Page)    = 40 B
+   两者与报告 §二 的内存布局实测表、以及图 EV12 的 GDB 读数完全一致，属于同一条
+   证据链的静态端与动态端。
+4) 编译期常量核对（不用跑程序就能确认的物理事实）：
+      DRAM_BASE / PGSIZE = 0x80000000 >> 12 = 0x80000 = nbase
+      内存末端 0x88000000 >> 12          = 0x88000 = npage
+      pages_num = npage - nbase          = 0x8000 = 32768 项
+      描述符数组字节数 = 32768 × 40      = 1310720 B ≈ 1.25 MiB
+   这三条与运行期打印（pages[] VA 0xffffffffc0207000、nr_free 31929）互相封闭。
+================================================================================

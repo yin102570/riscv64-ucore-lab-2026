@@ -1,0 +1,12 @@
+### 环境适配对照实验：同一条 ucore 镜像、同一台 QEMU 7.0.0，只换「把镜像交给 QEMU 的方式」
+### 采集命令：
+###   ① /opt/qemu/bin/qemu-system-riscv64 -machine virt -nographic -bios default -device loader,file=bin/ucore.img,addr=0x80200000
+###   ② /opt/qemu/bin/qemu-system-riscv64 -machine virt -nographic -bios default -kernel bin/ucore.img
+
+########## ① 教程原命令（-device loader）：固件拿不到 next_addr ##########
+OpenSBI v1.0
+Domain0 Next Address      : 0x0000000000000000
+Domain0 Next Arg1         : 0x0000000087000000
+Domain0 Next Mode         : S-mode
+
+### 观察：Domain0 Next Address = 0x0 -> 固件把控制权交给 0x0，内核一行都不执行。

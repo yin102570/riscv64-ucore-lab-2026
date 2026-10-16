@@ -1,0 +1,16 @@
+ffffffffc0200586 l     F .text	000000000000000a best_fit_nr_free_pages
+ffffffffc0200590 l     F .text	0000000000000112 best_fit_alloc_pages
+ffffffffc0200db2 l     F .text	000000000000017c best_fit_free_pages
+ffffffffc0205000 g       .data	0000000000000000 boot_page_table_sv39
+ffffffffc0200000 g       .text	0000000000000000 kern_entry
+ffffffffc02000d6 g     F .text	000000000000003a kern_init
+ffffffffc020102c g     F .text	000000000000000c free_pages
+ffffffffc0206060 g     O .bss	0000000000000008 va_pa_offset
+ffffffffc0206068 g     O .bss	0000000000000008 npage
+ffffffffc0201038 g     F .text	000000000000000c nr_free_pages
+ffffffffc0206078 g       .bss	0000000000000000 end
+ffffffffc0201044 g     F .text	0000000000000240 pmm_init
+ffffffffc0201020 g     F .text	000000000000000c alloc_pages
+ffffffffc0205000 g       .data	0000000000000000 bootstacktop
+ffffffffc0203000 g       .data	0000000000000000 bootstack
+ffffffffc0206070 g     O .bss	0000000000000008 pages

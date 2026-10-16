@@ -1,0 +1,16 @@
+The target architecture is set to "riscv:rv64".
+0x0000000000001000 in ?? ()
+Breakpoint 1 at 0xffffffffc02000d6: file kern/init/init.c, line 30.
+
+Breakpoint 1, kern_init () at kern/init/init.c:30
+30	    memset(edata, 0, end - edata);
+entry.S 保存的 a1(DTB 物理地址) boot_dtb = 0x87000000
+DTB 头部前 4 字节 = 0x87000000:	0xd0	0x0d	0xfe	0xed
+
+--- 方法三：主动探测（写-回读）---
+[探测 1] PA 0x81000000 (DRAM 内、空闲区) 写 0x1122334455667788
+         回读 = 0x1122334455667788   -> 一致 => 真实可写 RAM
+[探测 2] PA 0x88000000 (刚好越过 DRAM 末端) 写 0xaabbccddeeff0011
+         回读 = 0x/home/asdf1/lab2work/gdb/probe.cmd:17: Error in sourced command file:
+Cannot access memory at address 0x88000000
+[Inferior 1 (process 1) detached]

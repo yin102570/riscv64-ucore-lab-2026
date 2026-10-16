@@ -1,0 +1,23 @@
+
+Breakpoint 1, kern_init () at kern/init/init.c:30
+30	    memset(edata, 0, end - edata);
+Breakpoint 2 at 0xffffffffc0201044: file kern/mm/pmm.c, line 54.
+
+Breakpoint 2, pmm_init () at kern/mm/pmm.c:167
+167	    init_pmm_manager();
+kern_init () at kern/init/init.c:43
+43	    while (1)
+sizeof(struct Page)      = 40
+npage (PAGES)            = 557056
+nbase (DRAM_BASE/PGSIZE) = 524288
+pages[] 虚拟地址          = 0xffffffffc0207000
+pages[] 物理地址          = 0x80207000
+pages[] 项数             = 32768
+pages[] 字节数           = 1310720
+kernel end (VA)          = 0xffffffffc0206078
+kernel end (PA)          = 0x80206078
+当前空闲页数 nr_free      = 31929
+空闲起始页帧号            = 18446744072637935616
+空闲区第一页物理地址       = 0xffffffffc020f318
+[Inferior 1 (process 1) detached]
+[done]

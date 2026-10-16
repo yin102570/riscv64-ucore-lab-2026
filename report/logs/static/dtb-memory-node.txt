@@ -1,0 +1,9 @@
+magic = 0xd00dfeed (expect 0xd00dfeed)
+totalsize = 3826, off_dt_struct = 0x38, off_dt_strings = 0xd88, off_mem_rsvmap = 0x28
+
+--- memory reserve map (前 4 条) ---
+
+--- /memory 节点 ---
+  device_type = 6d656d6f727900
+     device_type = memory
+  reg: base = 0x0000000080000000, size = 0x8000000 (128 MB)

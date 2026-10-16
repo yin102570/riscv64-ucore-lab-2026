@@ -1,0 +1,59 @@
+### lab2 源码关键词扫描（用于 §六 R7「本实验未覆盖的 OS 原理知识点」取证）
+### 扫描范围：kern/ libs/ tools/ Makefile（排除 logs/ report/ images/ 这些非源码目录）
+### 扫描命令：Select-String -Path <源码文件> -Pattern <关键词> -SimpleMatch
+### 采集时间：运行时实测，未做任何改写
+
+===== COW                命中 0
+===== copy_on_write      命中 0
+===== copy-on-write      命中 0
+===== swap_out           命中 0
+===== swap_in            命中 0
+===== page_replacement   命中 0
+===== LRU                命中 0
+===== clock_algo         命中 0
+===== kmalloc            命中 0
+===== vmalloc            命中 2
+   kern\mm\slub_pmm.c:41: *     页级分配/vmalloc，那是另一套基于虚拟地址连续性的机制，不属于本 challenge。
+   kern\mm\slub_pmm.h:22: * 为按页分配/vmalloc，本实验不做，见 slub_pmm.c 顶部说明）。
+===== mmap               命中 16
+   kern\mm\best_fit_pmm.c:32: best_fit_init_memmap(struct Page *base, size_t n) {
+   kern\mm\best_fit_pmm.c:287: .init_memmap = best_fit_init_memmap,
+   kern\mm\buddy_system_pmm.c:65: static void buddy_system_init_memmap(struct Page *base, size_t n) {
+   kern\mm\buddy_system_pmm.c:336: .init_memmap = buddy_system_init_memmap,
+   kern\mm\default_pmm.c:18: default_init_memmap(struct Page *base, size_t n) {
+   kern\mm\default_pmm.c:249: .init_memmap = default_init_memmap,
+===== demand_paging      命中 0
+===== on-demand          命中 0
+===== NUMA               命中 1
+   kern\mm\slub_pmm.c:36: *   - 没有 NUMA 节点、没有 cgroup 记账、没有 slab 合并（slab merging）；
+===== compaction         命中 0
+===== shootdown          命中 0
+===== tlb_flush          命中 0
+===== sfence.vma         命中 2
+   kern\init\entry.S:30: # 使用 sfence.vma 指令刷新 TLB
+   kern\init\entry.S:31: sfence.vma
+===== ASID               命中 3
+   libs\sbi.c:12: uint64_t SBI_REMOTE_SFENCE_VMA_ASID = 7;
+   libs\sbi.h:23: void sbi_remote_sfence_vm(unsigned long hart_mask_ptr, unsigned long asid);
+   libs\sbi.h:24: void sbi_remote_sfence_vm_range(unsigned long hart_mask_ptr, unsigned long asid, unsigned long start, unsigned long size);
+===== asid               命中 3
+   libs\sbi.c:12: uint64_t SBI_REMOTE_SFENCE_VMA_ASID = 7;
+   libs\sbi.h:23: void sbi_remote_sfence_vm(unsigned long hart_mask_ptr, unsigned long asid);
+   libs\sbi.h:24: void sbi_remote_sfence_vm_range(unsigned long hart_mask_ptr, unsigned long asid, unsigned long start, unsigned long size);
+===== do_page_fault      命中 0
+===== page_fault         命中 0
+===== vmemmap            命中 0
+===== mem_map            命中 0
+===== kmem_cache         命中 13
+   kern\mm\slub_pmm.c:15: *   ① kmem_cache：一个“大小档次”对应一个缓存，记录该档次的对象大小、一个
+   kern\mm\slub_pmm.c:58: typedef struct kmem_cache kmem_cache_t;
+   kern\mm\slub_pmm.c:61: struct kmem_cache {
+   kern\mm\slub_pmm.c:72: list_entry_t  link;             /* 挂进 kmem_cache.slabs */
+   kern\mm\slub_pmm.c:78: kmem_cache_t *cache;            /* 反向指针：free() 直接拿到归属缓存 */
+   kern\mm\slub_pmm.c:81: static kmem_cache_t slub_caches[SLUB_NR_CLASSES];
+===== shmem              命中 0
+===== PID                命中 2
+   libs\riscv.h:831: #define CSR_MIMPID 0xf13
+   libs\riscv.h:1267: DECLARE_CSR(mimpid, CSR_MIMPID)
+===== cgroup             命中 1
+   kern\mm\slub_pmm.c:36: *   - 没有 NUMA 节点、没有 cgroup 记账、没有 slab 合并（slab merging）；

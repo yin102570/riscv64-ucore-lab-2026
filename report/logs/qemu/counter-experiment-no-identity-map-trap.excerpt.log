@@ -1,0 +1,17 @@
+# 反例实验摘录：把 boot_page_table_sv39 的项 2（低 1GiB 恒等映射）改成 0 之后的 QEMU 输出
+# 原始完整日志约 400 MB（死循环刷屏），此处只保留开头 6 行 + 死循环特征行；中间是逐字重复的同一行。
+# 采集命令：qemu-system-riscv64 -machine virt -nographic -bios default -kernel bin/ucore.img
+# 落盘方式：在 WSL 内用 run.sh 把 qemu 放进同一进程组，超时后 kill -9 收尾，避免后台进程残留。
+
+---- 引导早期（OpenSBI 交给内核前的 illegal_instruction，属正常噪声）----
+riscv_cpu_do_interrupt: hart:0, async:0, cause:0000000000000002, epc:0x0000000080007cd6, tval:0x0000000000000000, desc=illegal_instruction
+riscv_cpu_do_interrupt: hart:0, async:0, cause:0000000000000002, epc:0x00000000800076be, tval:0x0000000000000000, desc=illegal_instruction
+riscv_cpu_do_interrupt: hart:0, async:0, cause:000000000000000c, epc:0x0000000080200038, tval:0x0000000080200038, desc=exec_page_fault
+riscv_cpu_do_interrupt: hart:0, async:0, cause:000000000000000c, epc:0x0000000080200000, tval:0x0000000080200000, desc=exec_page_fault
+riscv_cpu_do_interrupt: hart:0, async:0, cause:000000000000000c, epc:0x0000000080200000, tval:0x0000000080200000, desc=exec_page_fault
+riscv_cpu_do_interrupt: hart:0, async:0, cause:000000000000000c, epc:0x0000000080200000, tval:0x0000000080200000, desc=exec_page_fault
+
+---- 死循环开始：csrw satp 之后 PC 仍是低地址，但项 2 恒等映射已删除 ----
+riscv_cpu_do_interrupt: hart:0, async:0, cause:000000000000000c, epc:0x0000000080200038, tval:0x0000000080200038, desc=exec_page_fault
+...  (以下一行以每秒数万次的速率重复，累计写出约 400 MB，此处省略)  ...
+riscv_cpu_do_interrupt: hart:0, async:0, cause:000000000000000c, epc:0x0000000080200000, tval:0x0000000080200000, desc=exec_page_fault

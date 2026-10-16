@@ -1,0 +1,112 @@
+
+OpenSBI v1.0
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name             : riscv-virtio,qemu
+Platform Features         : medeleg
+Platform HART Count       : 1
+Platform IPI Device       : aclint-mswi
+Platform Timer Device     : aclint-mtimer @ 10000000Hz
+Platform Console Device   : uart8250
+Platform HSM Device       : ---
+Platform Reboot Device    : sifive_test
+Platform Shutdown Device  : sifive_test
+Firmware Base             : 0x80000000
+Firmware Size             : 252 KB
+Runtime SBI Version       : 0.3
+
+Domain0 Name              : root
+Domain0 Boot HART         : 0
+Domain0 HARTs             : 0*
+Domain0 Region00          : 0x0000000002000000-0x000000000200ffff (I)
+Domain0 Region01          : 0x0000000080000000-0x000000008003ffff ()
+Domain0 Region02          : 0x0000000000000000-0xffffffffffffffff (R,W,X)
+Domain0 Next Address      : 0x0000000080200000
+Domain0 Next Arg1         : 0x0000000087000000
+Domain0 Next Mode         : S-mode
+Domain0 SysReset          : yes
+
+Boot HART ID              : 0
+Boot HART Domain          : root
+Boot HART ISA             : rv64imafdcsuh
+Boot HART Features        : scounteren,mcounteren,time
+Boot HART PMP Count       : 16
+Boot HART PMP Granularity : 4
+Boot HART PMP Address Bits: 54
+Boot HART MHPM Count      : 0
+Boot HART MIDELEG         : 0x0000000000001666
+Boot HART MEDELEG         : 0x0000000000f0b509
+DTB Init
+HartID: 0
+DTB Address: 0x87000000
+Physical Memory from DTB:
+  Base: 0x0000000080000000
+  Size: 0x0000000008000000 (128 MB)
+  End:  0x0000000087ffffff
+DTB init completed
+(THU.CST) os is loading ...
+Special kernel symbols:
+  entry  0xffffffffc02000d6 (virtual)
+  etext  0xffffffffc0202800 (virtual)
+  edata  0xffffffffc0207018 (virtual)
+  end    0xffffffffc0207410 (virtual)
+Kernel executable memory footprint: 29KB
+memory management: best_fit_pmm_manager
+physical memory map:
+  memory: 0x0000000008000000, [0x0000000080000000, 0x0000000087ffffff].
+check_alloc_page() succeeded!
+[Test S] SLUB self-test
+  classes: 14, min = 8 B, max = 65536 B
+  [ok]   S1 alloc(1 B)  -> 8 B 档次
+  [ok]   S1 alloc(8 B)  -> 8 B 档次（边界值正好命中）
+  [ok]   S1 alloc(9 B)  -> 16 B 档次（向上取整）
+  [ok]   S1 alloc(17 B) -> 32 B 档次
+  [ok]   S1 alloc(4096 B) -> 4 KiB 档次
+  [ok]   S1 alloc(64 KiB) -> 最大档次
+  [ok]   S1 alloc(64 KiB + 1) 已在档次表之外
+  [ok]   S2 首次 slub_alloc(16) 成功
+  [ok]   S2 首次分配建立 1 个 16 B 缓存
+  [ok]   S2 首块 slab 只占 1 页
+  [ok]   S2 已分配对象计数 = 1
+  [ok]   S3 连续分配 32 个 16 B 对象全部成功
+  [ok]   S3 32 个 16 B 对象打包在同一个 slab 页内
+  [ok]   S3 打包过程没有再向第一层要页
+  [ok]   S4 对象地址均满足 8 字节对齐
+  [ok]   S4 32 个对象两两不重叠
+  [ok]   S5 分配 200 B 对象成功（上取整到 256 B 档次）
+  [ok]   S5 256 B 档次与 16 B 档次使用不同的 slab
+  [ok]   S5 活跃缓存数 = 2
+  [ok]   S6 释放后立刻分配，原样复用同一个对象（自由链表 LIFO）
+  [ok]   S7 16 B 档全部释放后只剩 1 个 256 B 对象在用
+  [ok]   S7 空的 16 B slab 已整段归还，只剩 256 B 那一页
+  [ok]   S7 全部释放后已分配对象数为 0
+  [ok]   S7 全部释放后对象层不再持有任何物理页
+  [ok]   S7 全部释放后没有活跃缓存残留
+  [ok]   S8 全部 14 个档次都能分配出 2 个互不相同的对象
+  [ok]   S8 全档次遍历后持有的页数复原
+  [ok]   S9 slub_alloc(0) 返回 NULL（尺寸不合法）
+[SLUB] alloc(65537 B) rejected: max object size is 65536 B
+  [ok]   S9 超出最大档次（64 KiB + 1）的请求返回 NULL
+[SLUB] alloc(1048576 B) rejected: max object size is 65536 B
+  [ok]   S9 1 MiB 请求返回 NULL
+  [ok]   S9 slub_free(NULL) 安全，且非法请求没有留下记账残留
+  [ok]   S10 第一层无页可取时 slub_alloc 返回 NULL
+  [ok]   S10 OOM 失败没有留下记账残留
+  [ok]   S10 自检结束后 pmm_manager 已复原
+  [ok]   S11 8 个 128 B 对象全部分配成功
+  [ok]   S11 全部释放后已分配对象数为 0
+  [ok]   S11 对象层持有的页数回到初值
+  [ok]   S11 没有活跃缓存残留
+  [ok]   S11 页级空闲页数回到自检开始时的值（无泄漏）
+  [ok]   S12 设计不变式：全部 14 个档次的对象起点都落在 slab 第 0 页内
+[Test S] SLUB: PASS
+satp virtual address: 0xffffffffc0206000
+satp physical address: 0x0000000080206000
+qemu-system-riscv64: terminating on signal 15 from pid 1628 (timeout)

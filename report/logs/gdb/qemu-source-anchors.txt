@@ -1,0 +1,221 @@
+======================================================================
+ lab2 分支任务 · QEMU 源码锚点取证（关键调用路径 + 关键分支语句）
+ 生成方式：在源码树内用 grep -n / sed -n 实测摘录，未做任何改写
+ ① QEMU 7.0.0（本机 --enable-debug 自建，与实测行为同源）
+ ② QEMU 4.1.1（指导书对应版本，行号来自官方 tar 包解包）
+======================================================================
+
+########## 一、QEMU 7.0.0 ##########
+
+--- 1. 访存热路径：TLB 快路径查表 + 命中判定  accel/tcg/cputlb.c:1907-1938 ---
+1907:load_helper(CPUArchState *env, target_ulong addr, MemOpIdx oi,
+1908:            uintptr_t retaddr, MemOp op, bool code_read,
+1909:            FullLoadHelper *full_load)
+1910:{
+1911:    uintptr_t mmu_idx = get_mmuidx(oi);
+1912:    uintptr_t index = tlb_index(env, mmu_idx, addr);
+1913:    CPUTLBEntry *entry = tlb_entry(env, mmu_idx, addr);
+1914:    target_ulong tlb_addr = code_read ? entry->addr_code : entry->addr_read;
+1915:    const size_t tlb_off = code_read ?
+1916:        offsetof(CPUTLBEntry, addr_code) : offsetof(CPUTLBEntry, addr_read);
+1917:    const MMUAccessType access_type =
+1918:        code_read ? MMU_INST_FETCH : MMU_DATA_LOAD;
+1919:    unsigned a_bits = get_alignment_bits(get_memop(oi));
+1920:    void *haddr;
+1921:    uint64_t res;
+1922:    size_t size = memop_size(op);
+1923:
+1924:    /* Handle CPU specific unaligned behaviour */
+1925:    if (addr & ((1 << a_bits) - 1)) {
+1926:        cpu_unaligned_access(env_cpu(env), addr, access_type,
+1927:                             mmu_idx, retaddr);
+1928:    }
+1929:
+1930:    /* If the TLB entry is for a different page, reload and try again.  */
+1931:    if (!tlb_hit(tlb_addr, addr)) {
+1932:        if (!victim_tlb_hit(env, mmu_idx, index, tlb_off,
+1933:                            addr & TARGET_PAGE_MASK)) {
+1934:            tlb_fill(env_cpu(env), addr, size,
+1935:                     access_type, mmu_idx, retaddr);
+1936:            index = tlb_index(env, mmu_idx, addr);
+1937:            entry = tlb_entry(env, mmu_idx, addr);
+1938:        }
+
+--- 2. tlb_hit / tlb_hit_page  include/exec/cpu-all.h:405-418 ---
+405:static inline bool tlb_hit_page(target_ulong tlb_addr, target_ulong addr)
+406:{
+407:    return addr == (tlb_addr & (TARGET_PAGE_MASK | TLB_INVALID_MASK));
+408:}
+409:
+410:/**
+411: * tlb_hit: return true if @addr is a hit against the TLB entry @tlb_addr
+412: *
+413: * @addr: virtual address to test (need not be page aligned)
+414: * @tlb_addr: TLB entry address (a CPUTLBEntry addr_read/write/code value)
+415: */
+416:static inline bool tlb_hit(target_ulong tlb_addr, target_ulong addr)
+417:{
+418:    return tlb_hit_page(tlb_addr, addr & TARGET_PAGE_MASK);
+
+--- 3. TLB 未命中的慢路径 tlb_fill()  accel/tcg/cputlb.c:1303-1315 ---
+1303:static void tlb_fill(CPUState *cpu, target_ulong addr, int size,
+1304:                     MMUAccessType access_type, int mmu_idx, uintptr_t retaddr)
+1305:{
+1306:    CPUClass *cc = CPU_GET_CLASS(cpu);
+1307:    bool ok;
+1308:
+1309:    /*
+1310:     * This is not a probe, so only valid return is success; failure
+1311:     * should result in exception + longjmp to the cpu loop.
+1312:     */
+1313:    ok = cc->tcg_ops->tlb_fill(cpu, addr, size,
+1314:                               access_type, mmu_idx, false, retaddr);
+1315:    assert(ok);
+
+--- 4. RISC-V 侧 tlb_fill 实现入口  target/riscv/cpu_helper.c:1181-1196 ---
+1181:bool riscv_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
+1182:                        MMUAccessType access_type, int mmu_idx,
+1183:                        bool probe, uintptr_t retaddr)
+1184:{
+1185:    RISCVCPU *cpu = RISCV_CPU(cs);
+1186:    CPURISCVState *env = &cpu->env;
+1187:    vaddr im_address;
+1188:    hwaddr pa = 0;
+1189:    int prot, prot2, prot_pmp;
+1190:    bool pmp_violation = false;
+1191:    bool first_stage_error = true;
+1192:    bool two_stage_lookup = false;
+1193:    int ret = TRANSLATE_FAIL;
+1194:    int mode = mmu_idx;
+1195:    /* default TLB page size */
+1196:    target_ulong tlb_size = TARGET_PAGE_SIZE;
+
+--- 5. 未开分页/M 模式的恒等早退分支  target/riscv/cpu_helper.c:790-794 ---
+788:    }
+789:
+790:    if (mode == PRV_M || !riscv_feature(env, RISCV_FEATURE_MMU)) {
+791:        *physical = addr;
+792:        *prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
+793:        return TRANSLATE_SUCCESS;
+794:    }
+795:
+
+--- 6. Sv39 三级漫游主循环  target/riscv/cpu_helper.c:871-890 ---
+871:    int i;
+872:
+873:#if !TCG_OVERSIZED_GUEST
+874:restart:
+875:#endif
+876:    for (i = 0; i < levels; i++, ptshift -= ptidxbits) {
+877:        target_ulong idx;
+878:        if (i == 0) {
+879:            idx = (addr >> (PGSHIFT + ptshift)) &
+880:                           ((1 << (ptidxbits + widened)) - 1);
+881:        } else {
+882:            idx = (addr >> (PGSHIFT + ptshift)) &
+883:                           ((1 << ptidxbits) - 1);
+884:        }
+885:
+886:        /* check that physical address of PTE is legal */
+887:        hwaddr pte_addr;
+888:
+889:        if (two_stage && first_stage) {
+890:            int vbase_prot;
+
+--- 7. 读出 PTE 并判定 V / R|W|X（内节点 or 叶子）  target/riscv/cpu_helper.c:929-960 ---
+929:
+930:        if (riscv_cpu_sxl(env) == MXL_RV32) {
+931:            ppn = pte >> PTE_PPN_SHIFT;
+932:        } else if (cpu->cfg.ext_svpbmt || cpu->cfg.ext_svnapot) {
+933:            ppn = (pte & (target_ulong)PTE_PPN_MASK) >> PTE_PPN_SHIFT;
+934:        } else {
+935:            ppn = pte >> PTE_PPN_SHIFT;
+936:            if ((pte & ~(target_ulong)PTE_PPN_MASK) >> PTE_PPN_SHIFT) {
+937:                return TRANSLATE_FAIL;
+938:            }
+939:        }
+940:
+941:        if (!(pte & PTE_V)) {
+942:            /* Invalid PTE */
+943:            return TRANSLATE_FAIL;
+944:        } else if (!cpu->cfg.ext_svpbmt && (pte & PTE_PBMT)) {
+945:            return TRANSLATE_FAIL;
+946:        } else if (!(pte & (PTE_R | PTE_W | PTE_X))) {
+947:            /* Inner PTE, continue walking */
+948:            if (pte & (PTE_D | PTE_A | PTE_U | PTE_ATTR)) {
+949:                return TRANSLATE_FAIL;
+950:            }
+951:            base = ppn << PGSHIFT;
+952:        } else if ((pte & (PTE_R | PTE_W | PTE_X)) == PTE_W) {
+953:            /* Reserved leaf PTE flags: PTE_W */
+954:            return TRANSLATE_FAIL;
+955:        } else if ((pte & (PTE_R | PTE_W | PTE_X)) == (PTE_W | PTE_X)) {
+956:            /* Reserved leaf PTE flags: PTE_W + PTE_X */
+957:            return TRANSLATE_FAIL;
+958:        } else if ((pte & PTE_U) && ((mode != PRV_U) &&
+959:                   (!sum || access_type == MMU_INST_FETCH))) {
+960:            /* User PTE flags when not U mode and mstatus.SUM is not set,
+
+--- 8. 叶子命中后的物理地址合成  target/riscv/cpu_helper.c:1021-1028 ---
+1019:            }
+1020:
+1021:            /* for superpage mappings, make a fake leaf PTE for the TLB's
+1022:               benefit. */
+1023:            target_ulong vpn = addr >> PGSHIFT;
+1024:
+1025:            if (cpu->cfg.ext_svnapot && (pte & PTE_N)) {
+1026:                napot_bits = ctzl(ppn) + 1;
+1027:                if ((i != (levels - 1)) || (napot_bits != 4)) {
+1028:                    return TRANSLATE_FAIL;
+1029:                }
+1030:            }
+
+--- 9. 翻译成功 -> 写入软件 TLB  target/riscv/cpu_helper.c:1300-1308 ---
+1300:        pmp_violation = true;
+1301:    }
+1302:
+1303:    if (ret == TRANSLATE_SUCCESS) {
+1304:        tlb_set_page(cs, address & ~(tlb_size - 1), pa & ~(tlb_size - 1),
+1305:                     prot, mmu_idx, tlb_size);
+1306:        return true;
+1307:    } else if (probe) {
+1308:        return false;
+
+########## 二、QEMU 4.1.1（指导书版本）行号对照 ##########
+
+如无特别说明，下列均取自 https://download.qemu.org/qemu-4.1.1.tar.xz 解包后的原始文件：
+  target/riscv/cpu_helper.c
+    147  注释 /* get_physical_address - get the physical address for this virtual address
+    155  static int get_physical_address(...)
+    237  for (i = 0; i < levels; i++, ptshift -= ptidxbits)   <- Sv39 三级漫游主循环
+    258  target_ulong pte = ldq_phys(cs->as, pte_addr);         <- 从内存读页表项
+    260  if (!(pte & PTE_V)) return TRANSLATE_FAIL;             <- 关键分支：非法 PTE
+    262  else if (!(pte & (PTE_R | PTE_W | PTE_X))) base = ppn << PGSHIFT;  <- 关键分支：内节点
+    332  *physical = (ppn | (vpn & ((1L << ptshift) - 1))) << PGSHIFT;    <- 合成物理地址
+    355  static void raise_mmu_exception(...)                    <- 翻译失败 -> 缺页异常
+    377  riscv_cpu_get_phys_page_debug(...)                     <- gdb 的 translate 走这条
+    435  bool riscv_cpu_tlb_fill(CPUState *cs, vaddr address, ...)
+    452  tlb_set_page(cs, address & TARGET_PAGE_MASK, pa & TARGET_PAGE_MASK, prot, mmu_idx, TARGET_PAGE_SIZE);
+  include/exec/cpu-all.h
+    348  static inline bool tlb_hit_page(target_ulong tlb_addr, target_ulong addr)
+    359  static inline bool tlb_hit(target_ulong tlb_addr, target_ulong addr)
+  accel/tcg/cputlb.c
+    868  static void tlb_fill(CPUState *cpu, target_ulong addr, int size, ...)
+    882  static uint64_t io_readx(...)
+    977  static bool victim_tlb_hit(...)                        <- 受害 TLB 命中（QEMU 特有）
+    1248 load_helper(...)                                      <- 访存热路径
+  include/exec/cpu_ldst_template.h
+    80-112 cpu_ld*_ra()：entry = tlb_entry(...); if (unlikely(entry->ADDR_READ != (addr & ...))) -> helper_ret_ld*_mmu()
+    163-195 cpu_st*_ra()：同样的快路径，用 tlb_addr_write(entry)
+
+########## 三、本机 QEMU 7.0.0 的 mmu_idx 与特权级对应关系 ##########
+target/riscv/cpu_helper.c:
+29:int riscv_cpu_mmu_index(CPURISCVState *env, bool ifetch)
+30-{
+31-#ifdef CONFIG_USER_ONLY
+32-    return 0;
+33-#else
+34-    return env->priv;
+35-#endif
+36-}
+37-

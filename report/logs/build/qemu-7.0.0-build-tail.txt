@@ -1,0 +1,30 @@
+[2259/2288] Compiling C object tests/qtest/qos-test.p/ne2000-test.c.o
+[2260/2288] Compiling C object tests/qtest/qos-test.p/tulip-test.c.o
+[2261/2288] Compiling C object tests/qtest/qos-test.p/isl_pmbus_vr-test.c.o
+[2262/2288] Compiling C object tests/qtest/qos-test.p/pca9552-test.c.o
+[2263/2288] Compiling C object tests/qtest/qos-test.p/usb-hcd-ohci-test.c.o
+[2264/2288] Compiling C object tests/qtest/qos-test.p/sdhci-test.c.o
+[2265/2288] Compiling C object tests/qtest/qos-test.p/nvme-test.c.o
+[2266/2288] Compiling C object tests/qtest/qos-test.p/pci-test.c.o
+[2267/2288] Compiling C object tests/qtest/qos-test.p/emc141x-test.c.o
+[2268/2288] Linking target tests/qtest/fuzz-virtio-scsi-test
+[2269/2288] Compiling C object tests/qtest/qos-test.p/tmp105-test.c.o
+[2270/2288] Compiling C object tests/qtest/qos-test.p/spapr-phb-test.c.o
+[2271/2288] Compiling C object tests/qtest/qos-test.p/virtio-test.c.o
+[2272/2288] Compiling C object tests/qtest/qos-test.p/virtio-scsi-test.c.o
+[2273/2288] Compiling C object tests/qtest/qos-test.p/vmxnet3-test.c.o
+[2274/2288] Compiling C object tests/qtest/qos-test.p/virtio-serial-test.c.o
+[2275/2288] Compiling C object tests/qtest/qos-test.p/virtio-rng-test.c.o
+[2276/2288] Compiling C object tests/qtest/qos-test.p/virtio-net-test.c.o
+[2277/2288] Compiling C object tests/qtest/qos-test.p/virtio-blk-test.c.o
+[2278/2288] Compiling C object tests/qtest/qos-test.p/vhost-user-test.c.o
+[2279/2288] Compiling C object tests/qtest/qos-test.p/virtio-iommu-test.c.o
+[2280/2288] Linking target tests/qtest/cdrom-test
+[2281/2288] Linking target tests/qtest/machine-none-test
+[2282/2288] Linking target tests/qtest/fuzz-sdcard-test
+[2283/2288] Linking target tests/qtest/qom-test
+[2284/2288] Compiling C object tests/qtest/qos-test.p/vhost-user-blk-test.c.o
+[2285/2288] Linking target tests/qtest/qmp-test
+[2286/2288] Linking target tests/qtest/qmp-cmd-test
+[2287/2288] Linking target tests/qtest/test-hmp
+[2288/2288] Linking target tests/qtest/qos-test
