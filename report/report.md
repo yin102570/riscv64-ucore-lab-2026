@@ -131,7 +131,7 @@ QEMU 4.1.1 的源码里定位了软件 TLB 的查找代码。过程中遇到一�
 | R1 | 用 markdown 完成，以文本说明为主 | 本文件即 markdown 全文；正文以文字说明为主，截图只承担“证据”角色 | ✅ |
 | R2 | 说明对本章整体逻辑的理解：按什么顺序、围绕哪些功能逐步实现 | §三（`3.1` 逻辑主线 + `3.2` 功能逐步实现表） | ✅ |
 | R3 | 说明对每个功能的核心函数 / 功能模块的理解 | §四 模块零（源码逐模块）→ 模块一 → 2-1 → 2-2 → Challenge 2-3 / 2-4 → 分支任务 | ✅ |
-| R4 | 说明每个练习的 `spec` 与 `prompt` 是怎么写的 | §四 各模块的 `[SPECIFICATION]` / `[PROMPT]` 小节 + §6.3 提示词工程方法论；全量原文见 `prompt.md` | ✅ |
+| R4 | 说明每个练习的 `spec` 与 `prompt` 是怎么写的 | §四 各模块的 `[RELY]` / `[GUARANTEE]` / `[SPECIFICATION]` / `[PROMPT]` 四段式小节 + §6.3 提示词工程方法论；全量原文见 `prompt.md` | ✅ |
 | R5 | 说明用提示词让 AI 生成代码时出现的 bug 及解决过程 | §四 各模块的「迭代过程」+ §五 R5 专栏（3 个真实缺陷汇总） | ✅ |
 | R6 | 列出本实验重要知识点与 OS 原理知识点的对应，说明含义、关系和差异 | §6.1.1 知识点对照表（含“关系 / 差异”列） | ✅ |
 | R7 | 列出 OS 原理中很重要、但本实验没有对应上的知识点 | §6.1.2 未覆盖清单（依据 `logs/static/r7-keyword-scan.txt` 的全源码关键词扫描） | ✅ |
@@ -148,7 +148,7 @@ QEMU 4.1.1 的源码里定位了软件 TLB 的查找代码。过程中遇到一�
 | 工具 | 用途 |
 |---|---|
 | Codex（OpenAI，CLI/桌面版） | 按 `spec` + `prompt` 生成功能模块代码初稿；解释 QEMU/规范行为；协助阅读指导书与往届材料；生成报告骨架与自查清单 |
-| 提示词工程方式 | 先写清 `[SPECIFICATION]`（输入域、输出域、边界与不变式、禁止改动项），再给 `prompt`；AI 产出后**逐条对照不变式自测**，失败的写进"迭代过程" |
+| 提示词工程方式 | 四段式：先写 `[RELY]`（能依赖什么）/ `[GUARANTEE]`（必须交付什么，含禁止改动项）/ `[SPECIFICATION]`（每个函数行为规格与不变式），再写 `[PROMPT]` 引用前三段全文；AI 产出后**逐条对照不变式自测**，失败的写进"迭代过程" |
 
 > 我们对 AI 的使用原则是：**AI 只负责"写第一稿"，正确性由测试与 GDB 现场证据裁定**。
 > 本实验里 AI 至少留下了 3 个真实缺陷（见 §四 各模块的"迭代过程"与 §五 R5 专栏），
@@ -703,25 +703,26 @@ Challenge 部分框架不给文件、由我们自己新建。交付要求是**�
 | I3 | `pages[]` 起始地址**页对齐**且**在内核 `end` 之后**；数组自身占用的页**不在**空闲区 | 覆盖内核数据；或分配器把 `pages[]` 当空闲页发出去 → 自毁 |
 | I4 | **先**把 `[nbase, npage)` 全部置 `Reserved`，**再**把扣掉内核镜像与 `pages[]` 之后的完整空闲区交给 `init_memmap()` | `assert(PageReserved(p))` 失败；或把 OpenSBI/内核区当空闲页 |
 
-#### 1.2 `[SPECIFICATION]`（写给 AI 的规格说明）
+#### 1.2 规格说明四段式（`[RELY]` / `[GUARANTEE]` / `[SPECIFICATION]`）
 
-> 这是我们实际使用的 spec 全文。写法上刻意把"**输入域 / 输出域 / 不变式 / 禁止改动项**"
-> 四块分开——实践下来，**"禁止改动项"是让 AI 少跑偏最有效的一段**。
+> 沿用 lab0.5 四段式：先把"**能依赖什么（RELY）**"与"**必须交付什么（GUARANTEE）**"拆开，
+> 再写"**每个函数的行为规格（SPECIFICATION）**"。实践下来，**`[GUARANTEE]` 里的"禁止改动项"是让 AI 少跑偏最有效的一段**。
 
 ```text
-[SPECIFICATION] kern/mm/pmm.c :: static void page_init(void)
+[RELY] kern/mm/pmm.c :: static void page_init(void)
 目标平台: ucore/riscv64, Sv39, PGSIZE=4096, DRAM_BASE=0x80000000
           PHYSICAL_MEMORY_OFFSET=0xFFFFFFFF40000000, KERNBASE=0xFFFFFFFFC0200000
           nbase = DRAM_BASE / PGSIZE = 0x80000
 
-输入（已有全局/函数）:
+可依赖的已有函数（直接调用，不重新实现）:
   get_memory_base(), get_memory_size()  —— DTB 探测到的物理内存 base/size（字节）
   extern char end[];                    —— 链接脚本定义的"内核镜像末尾"符号
   init_memmap(struct Page *base, size_t n) —— 把 n 个空闲页登记进分配器
   PADDR(kva) / pa2page(pa) / ROUNDUP / ROUNDDOWN / PPN / PGSIZE
   struct Page 的 flags/property/ref/page_link 及 SetPageReserved 等宏
 
-输出（函数返回时必须成立的全局状态）:
+[GUARANTEE] kern/mm/pmm.c :: static void page_init(void)
+交付: 实现 static void page_init(void)，函数返回时必须成立的全局状态:
   va_pa_offset == PHYSICAL_MEMORY_OFFSET
   npage  == PPN(ROUNDDOWN(mem_base + mem_size, PGSIZE))
   pages  == 指向位于内核 end 之后、页对齐的 struct Page 数组
@@ -729,6 +730,14 @@ Challenge 部分框架不给文件、由我们自己新建。交付要求是**�
   空闲区 = [ROUNDUP(pages 数组末尾, PGSIZE), ROUNDDOWN(mem_base+mem_size, PGSIZE))
   上述空闲区已全部通过 init_memmap() 登记，且每页进入前都是 PageReserved
 
+禁止改动项（违反即视为不合规）:
+  * 不得修改 struct Page 的定义与 memlayout.h 的常量
+  * 不得修改 tools/test_lab2.c 里的 test_page_init() 及其判据
+  * 不得在 pmm.c 里 #include <test_lab2.h>
+  * 不得在 Makefile 中出现 kern/test 相关目标名
+  * 必须保留 //lab2 注释点，只替换 YOUR CODE
+
+[SPECIFICATION] kern/mm/pmm.c :: static void page_init(void)
 不变式（必须逐条自检）:
   I1  va_pa_offset 被赋值；否则 PADDR 全部失效
   I2  npage > nbase，且 npage == PPN(mem_end)
@@ -743,20 +752,13 @@ Challenge 部分框架不给文件、由我们自己新建。交付要求是**�
   pages 数组放不进内存 (pages_end > mem_end) -> panic
   空闲区为空 (free_start >= mem_end)     -> 打印 warning 并直接返回，不调用 init_memmap
   mem_end 未页对齐                       -> 向下取整，残段不构成完整物理页
-
-禁止改动项（违反即视为不合规）:
-  * 不得修改 struct Page 的定义与 memlayout.h 的常量
-  * 不得修改 tools/test_lab2.c 里的 test_page_init() 及其判据
-  * 不得在 pmm.c 里 #include <test_lab2.h>
-  * 不得在 Makefile 中出现 kern/test 相关目标名
-  * 必须保留 //lab2 注释点，只替换 YOUR CODE
 ```
 
-#### 1.3 `[PROMPT]`（实际使用的提示词）
+#### 1.3 `[PROMPT]`（做什么、改哪里、怎么改）
 
 ```text
 请你以一位写 ucore/riscv64 实验代码的助教身份，严格按照我给出的
-[SPECIFICATION] 实现 kern/mm/pmm.c 中的 static void page_init(void)。
+[RELY]/[GUARANTEE]/[SPECIFICATION] 实现 kern/mm/pmm.c 中的 static void page_init(void)。
 
 要求：
 1) 只输出这一个函数的完整 C 代码（含注释），不要输出其它文件的修改。
@@ -767,8 +769,8 @@ Challenge 部分框架不给文件、由我们自己新建。交付要求是**�
 5) 保持 ucore 现有代码风格（4 空格缩进、cprintf 打印、panic 用法）。
 6) 不要改动任何我列为"禁止改动项"的东西。
 
-[SPECIFICATION]
-（……上文 1.2 的规格全文……）
+[RELY] / [GUARANTEE] / [SPECIFICATION]
+（……上文 1.2 的三段全文……）
 
 另外请回答：如果把"先标 Reserved"和"再 init_memmap"这两步交换顺序，会先在哪一行炸？为什么？
 ```
@@ -1164,19 +1166,38 @@ static void default_init(void) { list_init(&free_list); nr_free = 0; }
 **对应位置**：`kern/mm/best_fit_pmm.c`（在标有 `lab2` / `YOUR CODE` 的位置补全），
 外加 `kern/mm/pmm.c` 的 `init_pmm_manager()` 切换。
 
-#### 2-2.1 `[SPECIFICATION]`
+#### 2-2.1 规格说明四段式（`[RELY]` / `[GUARANTEE]` / `[SPECIFICATION]`）
 
 ```text
-[SPECIFICATION] kern/mm/best_fit_pmm.c :: Best-Fit 连续物理内存分配器
-背景: 框架只提供了 basic_check() 与 best_fit_check() 两个测试函数（禁止修改），
-      以及 libs/list.h 的双向循环链表，不提供任何管理函数的声明/注册结构。
+[RELY] kern/mm/best_fit_pmm.c :: Best-Fit 连续物理内存分配器
+
+背景: 框架不提供任何管理函数的声明/注册结构，需要自行设计。
+
+可依赖的已有代码（直接使用，不重新实现）:
+  basic_check() / best_fit_check()  —— 框架测试函数（tools/test_lab2.c，禁止修改）
+  libs/list.h 的双向循环链表宏（list_init / list_add / list_del / list_next / le2page 等）
+  struct Page（kern/mm/memlayout.h）及其 PG_property / property 字段
+  struct pmm_manager（kern/mm/pmm.h）的成员函数签名与注册结构
+
+[GUARANTEE] kern/mm/best_fit_pmm.c :: Best-Fit 连续物理内存分配器
 
 必须自行设计并提供:
   ① 内部状态: free_area_t（free_list 头 + nr_free 计数）
   ② 六个成员函数: init / init_memmap / alloc_pages / free_pages / nr_free_pages / check
   ③ 注册实例: const struct pmm_manager best_fit_pmm_manager
 
-函数语义（必须与测试函数的用法一致）:
+额外修改点:
+  在 kern/mm/pmm.c 的 init_pmm_manager() 中把默认管理器切到
+  best_fit_pmm_manager（否则内核与评分仍走 First-Fit）。
+
+禁止改动项:
+  * basic_check() 与 best_fit_check() 一个字都不许改
+  * 不得新增/修改 struct Page 的字段
+  * 必须保留 lab2 注释点，把 YOUR CODE 换成学号 2410749
+
+[SPECIFICATION] kern/mm/best_fit_pmm.c :: Best-Fit 连续物理内存分配器
+
+每个函数的详细行为（必须与测试函数的用法一致）:
   init()                    : 清空链表, nr_free = 0
   init_memmap(base, n)      : base 起 n 页作为一个空闲块登记; 进入前 assert(PageReserved)
                               进入后该块首页 PageProperty=1 且 property=n; nr_free += n
@@ -1193,20 +1214,12 @@ static void default_init(void) { list_init(&free_list); nr_free = 0; }
   I3 链表所有 property 之和 == nr_free
   I4 分配走后首页 PageProperty==0（表示"已分配"）
   I5 重复分配-释放后，链表结构（块数与各块大小）必须回到原点
-
-禁止改动项:
-  * basic_check() 与 best_fit_check() 一个字都不许改
-  * 不得新增/修改 struct Page 的字段
-  * 必须保留 lab2 注释点，把 YOUR CODE 换成学号 2410749
-
-额外要求: 在 kern/mm/pmm.c 的 init_pmm_manager() 中把默认管理器切到
-          best_fit_pmm_manager（否则内核与评分仍走 First-Fit）。
 ```
 
-#### 2-2.2 `[PROMPT]`（实际使用的提示词）
+#### 2-2.2 `[PROMPT]`（做什么、改哪里、怎么改）
 
 ```text
-你现在是 ucore/riscv64 实验的助教。请根据下面的 [SPECIFICATION]，
+你现在是 ucore/riscv64 实验的助教。请根据下面的 [RELY]/[GUARANTEE]/[SPECIFICATION]，
 在 kern/mm/best_fit_pmm.c 中实现一个完整的 Best-Fit 连续物理内存分配器。
 
 要求：
@@ -1222,8 +1235,8 @@ static void default_init(void) { list_init(&free_list); nr_free = 0; }
 6) 不得修改 basic_check() 与 best_fit_check()；保留 lab2 注释点。
 7) 最后给出 best_fit_pmm_manager 的注册结构，并说明为什么把它放在文件末尾。
 
-[SPECIFICATION]
-（……上文 2-2.1 的规格全文……）
+[RELY] / [GUARANTEE] / [SPECIFICATION]
+（……上文 2-2.1 的三段全文……）
 
 另外请回答：如果我把"并列取地址最小者"这一条去掉，best_fit_check() 里哪一条
 断言可能变成不确定的？为什么？
@@ -1346,72 +1359,128 @@ $$\text{order } k \text{ 的块} = 2^k \text{ 页，且块首物理页号必须�
 $O(\log N)$，不像 First/Best-Fit 那样要 O(空闲块数) 扫描。**代价**是内部碎片：
 请求 3 页会拿到 4 页，请求 5 页会拿到 8 页。
 
-#### 3.2 第一份 `[PROMPT]`：从零生成 Buddy 模块并接入内核
+#### 3.2 第一份 prompt 四段式（`[RELY]` / `[GUARANTEE]` / `[SPECIFICATION]` / `[PROMPT]`）
 
 ```text
+[RELY] Challenge 2-3 :: Buddy System 页级分配器
+
+可依赖的已有代码（直接使用，不重新实现）:
+  struct pmm_manager（kern/mm/pmm.h）—— 六个成员函数的签名与注册结构
+  struct Page（kern/mm/memlayout.h）—— 用 PG_property 标记"空闲块首页"，
+    用 property 字段记录"本块有多少页"
+  libs/list.h 的双向循环链表宏
+  free_area_t 组织每个阶的链表
+  上层接口 alloc_pages(n) / free_pages(page, n) 与其它分配器保持一致
+
+[GUARANTEE] Challenge 2-3 :: Buddy System 页级分配器
+
+交付清单:
+  buddy_system_pmm.h 与 buddy_system_pmm.c 完整代码
+  实现 struct pmm_manager 全部六个成员函数:
+    init / init_memmap / alloc_pages / free_pages / nr_free_pages / check
+  导出 const struct pmm_manager buddy_system_pmm_manager 供 pmm.c 引用
+
+修改点:
+  在 kern/mm/pmm.c 的 init_pmm_manager() 中加编译期开关:
+    make DEFS=-DUSE_BUDDY_PMM 时用 buddy_system_pmm_manager，
+    否则保持默认（默认必须是 best_fit_pmm_manager，不能破坏评分路径）
+
+纪律与禁止改动项:
+  * 保留所有 lab2 注释；新增代码用 //lab2 challenge 2-3 2412090 标注
+  * 不要修改 tools/ 下任何文件
+  * 不要修改 basic_check / best_fit_check
+
+[SPECIFICATION] Challenge 2-3 :: Buddy System 页级分配器
+
+算法参数:
+  阶数 0..11（单块最大 2048 页 = 8MB）
+
+每个函数的详细行为:
+  init()                    : 初始化每个阶的空闲链表, nr_free = 0
+  init_memmap(base, n)      : 把 [base, base+n) 切成"最大且自身按阶对齐"的自然块
+                              序列，逐块挂进对应阶链表（伙伴系统的规范初始化方式）
+  alloc_pages(n)            : n > 空闲总数返回 NULL；取 need = ceil(log2(n))；
+                              从最小有块可用的阶 j >= need 开始，逐级对半劈开，
+                              右半块挂入低阶链表，左半块继续劈，返回 need 阶对齐块
+  free_pages(base, n)       : 挂回对应阶，然后循环 buddy_idx = idx ^ size 检查伙伴；
+                              伙伴同阶空闲则合并并升阶；新块首取地址较小者；
+                              伙伴超出可管理内存 (npage-nbase) 时终止
+  nr_free_pages()           : 各阶块页数之和
+  check()                   : buddy_system_check()（见 3.3）
+
+必须成立的不变式:
+  I1 各阶块页数之和 == nr_free
+  I2 只有块首页 PageProperty=1；块内其余页 PageProperty==0
+```
+
+```text
+[PROMPT] Challenge 2-3 :: Buddy System 页级分配器
+
 你是 ucore/riscv64 实验的助教。请参考现有 ucore 物理内存管理框架，从零生成一个
 完整的 Buddy System（伙伴系统）页级分配器，并接入内核。
 
-【必须遵守的框架约定】
-1) 实现 struct pmm_manager（见 kern/mm/pmm.h）的全部六个成员函数：
-   init / init_memmap / alloc_pages / free_pages / nr_free_pages / check，
-   并导出 const struct pmm_manager buddy_system_pmm_manager 供 pmm.c 引用。
-2) 复用 struct Page（kern/mm/memlayout.h）：用 PG_property 标记"空闲块首页"，
-   用 property 字段记录"本块有多少页"；用 libs/list.h 的双向循环链表。
-3) 通过 free_area_t 组织每个阶的链表；用 alloc_pages(n)/free_pages(page,n)
-   这两个上层接口与其它分配器保持一致。
-
-【算法要求】
-4) 阶数 0..11（单块最大 2048 页 = 8MB）。
-5) init_memmap(base, n)：把 [base, base+n) 这一段连续空闲内存切成
-   "最大且自身按阶对齐"的自然块序列，逐块挂进对应阶链表 —— 这是伙伴系统的
-   规范初始化方式，请说明为什么要这样切。
-6) alloc_pages(n)：n > 空闲总数返回 NULL；取 need = ceil(log2(n))；
-   从最小的有块可用的阶 j >= need 开始，逐级对半劈开，右半块挂入低阶链表，
-   左半块继续劈，返回 need 阶的对齐块。
-7) free_pages(base, n)：挂回对应阶，然后循环 buddy_idx = idx ^ size 检查伙伴；
-   伙伴同阶空闲则合并并继续升阶；合并后新块首取地址较小者；注意伙伴超出
-   可管理内存 (npage-nbase) 时要终止。
-8) 每次操作后必须维护：各阶块页数之和 == nr_free；只有块首页 PageProperty=1。
-
-【接入与纪律】
-9) 在 kern/mm/pmm.c 的 init_pmm_manager() 中加一个编译期开关：
-   make DEFS=-DUSE_BUDDY_PMM 时用 buddy_system_pmm_manager，否则保持默认
-   （默认必须是 best_fit_pmm_manager，不能破坏评分路径）。
-10) 保留所有 lab2 注释；新增代码用 //lab2 challenge 2-3 2412090 标注。
-11) 不要修改 tools/ 下任何文件，不要修改 basic_check/best_fit_check。
+要求：
+1) 严格按照上面的 [RELY]/[GUARANTEE]/[SPECIFICATION] 实现，不得偏离阶数上限、
+   切块方式与合并终止条件。
+2) 每个函数上方用注释说明它维护了哪条不变式。
+3) 保留所有 lab2 注释；新增代码用 //lab2 challenge 2-3 2412090 标注。
+4) 说明：为什么 init_memmap 要把空闲区切成"最大且自身按阶对齐"的自然块序列。
 
 【输出】
 给出 buddy_system_pmm.h 与 buddy_system_pmm.c 的完整代码，每个函数上方用注释
 说明它维护了哪条不变量。
 ```
 
-#### 3.3 第二份 `[PROMPT]`：针对该算法设计测试
+#### 3.3 第二份 prompt 四段式（`[RELY]` / `[GUARANTEE]` / `[SPECIFICATION]` / `[PROMPT]`）
 
 ```text
+[RELY] Challenge 2-3 :: buddy_system_check() 自测设计
+
+可依赖（已生成并接入的模块与接口）:
+  buddy_system_pmm 模块（alloc_pages / free_pages / nr_free_pages）
+  cprintf 输出
+  nr_free_pages() 与各阶链表的观测
+
+[GUARANTEE] Challenge 2-3 :: buddy_system_check() 自测设计
+
+交付:
+  buddy_system_check() 作为 pmm_manager 的 .check 成员被调用
+  输出格式: 用 cprintf 逐条打印 "  [ok] xxx" / "  [FAIL] xxx (line N)"
+  最后打印 [Test B] Buddy System: PASS/FAIL
+
+禁止改动项:
+  * 不得修改框架的 basic_check / best_fit_check
+  * 不得修改 tools/ 下任何文件
+
+[SPECIFICATION] Challenge 2-3 :: buddy_system_check() 自测设计
+
+每个测试用例的详细行为（必须覆盖的核心行为）:
+  B1 初始切块：遍历每个阶的链表，检查
+     - 每个块的 property == 2^order；
+     - 块首页号 (p - pages) 按 2^order 对齐；
+     - 所有阶的 property 之和 == nr_free_pages()。
+  B2 往返不变性：先记录"阶分布指纹"（每个阶的块数），分配 1 页再释放，
+     指纹必须逐阶一致 —— 说明 split 与 coalesce 互为逆操作。
+  B3 2 的幂次上取整：alloc_pages(3) 必须返回 property==4 且页号按 4 页对齐的块。
+  B4 拆分正确性：连续分配 8 个单页，8 个页描述符必须两两不同（拆分不重叠）。
+  B5 合并正确性：按 LIFO 顺序把这些页归还后，阶分布指纹必须回到原点。
+  B6 边界：alloc_pages(nr_free + 1) 必须返回 NULL，且不改变 nr_free。
+  B7 压力：连续分配 64 个单页、再逆序全部释放，指纹与 nr_free 都必须复原。
+```
+
+```text
+[PROMPT] Challenge 2-3 :: buddy_system_check() 自测设计
+
 请针对你刚才生成的 Buddy System 实现，设计一份能真正抓住伙伴系统特有错误的
 自测函数 buddy_system_check()（作为 pmm_manager 的 .check 成员被调用），
-要求在【能分配能释放】之外，检验下列不变量。测试必须用 cprintf 逐条打印
-"  [ok] xxx" / "  [FAIL] xxx (line N)"，最后打印 [Test B] Buddy System: PASS/FAIL。
+在【能分配能释放】之外，逐条实现 [SPECIFICATION] 里的 B1~B7。
+测试必须用 cprintf 逐条打印 "  [ok] xxx" / "  [FAIL] xxx (line N)"，
+最后打印 [Test B] Buddy System: PASS/FAIL。
 
-【必须覆盖的核心行为】
-B1 初始切块：遍历每个阶的链表，检查
-   - 每个块的 property == 2^order；
-   - 块首页号 (p - pages) 按 2^order 对齐；
-   - 所有阶的 property 之和 == nr_free_pages()。
-B2 往返不变性：先记录"阶分布指纹"（每个阶的块数），分配 1 页再释放，
-   指纹必须逐阶一致 —— 这说明 split 与 coalesce 互为逆操作。
-B3 2 的幂次上取整：alloc_pages(3) 必须返回 property==4 且页号按 4 页对齐的块。
-B4 拆分正确性：连续分配 8 个单页，8 个页描述符必须两两不同（拆分不重叠）。
-B5 合并正确性：按 LIFO 顺序把这些页归还后，阶分布指纹必须回到原点。
-B6 边界：alloc_pages(nr_free + 1) 必须返回 NULL，且不改变 nr_free。
-B7 压力：连续分配 64 个单页、再逆序全部释放，指纹与 nr_free 都必须复原。
-
-【要求】
-- 不得修改框架的 basic_check/best_fit_check；
-- 说明：为什么"阶分布指纹前后比对"能抓住 split/coalesce 不对称的 bug，
+另外请回答：
+- 为什么"阶分布指纹前后比对"能抓住 split/coalesce 不对称的 bug，
   而仅仅"分配返回非 NULL"抓不住？
-- 说明：B6 为什么必须用 nr_free+1 而不是别的数？
+- 为什么 B6 必须用 nr_free+1 而不是别的数？
 ```
 
 #### 3.4 实测输出（`logs/run/buddy-run.txt`，逐字）
@@ -1532,91 +1601,137 @@ size=200 → slub_class_index(200) = 8（因为 2^8 = 256 >= 200）→ caches[8]
   → 返回 obj
 ```
 
-#### 4.2 第一份 `[PROMPT]`：从零生成 SLUB 模块并接入内核
+#### 4.2 第一份 prompt 四段式（`[RELY]` / `[GUARANTEE]` / `[SPECIFICATION]` / `[PROMPT]`）
 
 ```text
+[RELY] Challenge 2-4 :: SLUB 任意大小内存分配模块
+
+可依赖（第一层页级分配，SLUB 不允许自己碰 DRAM）:
+  alloc_pages(n) / free_pages(page, n) —— 已实现的页分配器
+    （架在 Best-Fit 或 Buddy System 之上，SLUB 必须完全通过它拿页/还页）
+  struct Page / libs/list.h / pmm.h 等既有框架
+
+[GUARANTEE] Challenge 2-4 :: SLUB 任意大小内存分配模块
+
+交付清单:
+  slub_pmm.h 与 slub_pmm.c 完整代码
+  第二层（对象级）对外只暴露两个函数:
+    void *slub_alloc(size_t size);   // 成功返回对象地址，失败返回 NULL
+    void  slub_free(void *ptr);      // ptr==NULL 时安全无操作
+  观测接口（供自检与取证）:
+    slub_nr_caches() / slub_total_pages() / slub_allocated_objects()
+
+修改点:
+  在 kern/mm/pmm.c 的 pmm_init() 末尾加编译期钩子:
+    #if defined(CHALLENGE_SLUB_TEST) → slub_init(); slub_check(); #endif
+  默认关闭，绝不影响 [Test 1]/[Test 2] 的评分路径。
+
+纪律与禁止改动项:
+  * 保留 lab2 注释；新增代码标注 //lab2 challenge 2-4 2412090
+  * 不得修改 tools/ 下任何文件
+
+[SPECIFICATION] Challenge 2-4 :: SLUB 任意大小内存分配模块
+
+两层架构:
+  第二层（对象级）只通过第一层拿页/还页；第一层不碰 DRAM，
+  完全通过 alloc_pages / free_pages。
+
+档次与 slab:
+  大小档次: 8 B 起按 2 的幂次到 64 KiB，共 14 档；请求向上取整到最近档次；
+  超过 64 KiB 的请求返回 NULL 并打印一行诊断。
+  每个档次一个 kmem_cache；slab 元数据（kmem_slab）放在 slab 段首，
+  内含 magic（0x534C5542）、容量、已用数、自由链表头、反向 cache 指针。
+  slab 占页数取"最小的 2 的幂次"，使其至少装得下 64 字节元数据 + 1 个对象。
+  对象区使用侵入式自由链表（空闲对象头 8 字节存下一个空闲对象地址），
+  分配/释放都是 O(1)（LIFO）。
+  当某个 slab 的 in_use 降为 0 时，把整段页 free_pages() 归还第一层。
+
+关键不变式（最重要）:
+  I1 段首元数据与所有对象的起始地址都必须落在 slab 的第 0 页内。
+     因为 free() 手上只有对象指针，靠"指针向下按页对齐"(ptr & ~(PGSIZE-1))
+     回溯段首；若对象起点落到后面的页，就会读错页的 magic 造成泄漏。
+     为此容量 capacity 必须取两个上界的较小者：
+       ① (slab_pages*PGSIZE - 64) / objsize
+       ② (PGSIZE - 64 - 1) / objsize + 1
+```
+
+```text
+[PROMPT] Challenge 2-4 :: SLUB 任意大小内存分配模块
+
 你是 ucore/riscv64 实验的助教。请在没有现成代码框架的前提下，从零生成一个 SLUB
 内存对象分配模块（两层架构），并接入现有内核。
 
-【两层架构，必须严格遵守】
-1) 第二层（对象级）对外只暴露两个函数：
-     void *slub_alloc(size_t size);   // 成功返回对象地址，失败返回 NULL
-     void  slub_free(void *ptr);      // ptr==NULL 时安全无操作
-   另提供观测接口 slub_nr_caches() / slub_total_pages() / slub_allocated_objects()
-   供自检与取证使用。
-2) 第一层（页级）**不允许自己碰 DRAM**，必须完全通过已实现的
-   alloc_pages(n) / free_pages(page, n) 拿页与还页，这样它才能架在
-   Best-Fit 或 Buddy System 之上。
-
-【档次与 slab】
-3) 大小档次：8 B 起按 2 的幂次到 64 KiB，共 14 档；请求向上取整到最近档次；
-   超过 64 KiB 的请求返回 NULL 并打印一行诊断。
-4) 每个档次一个 kmem_cache；slab 元数据（kmem_slab）放在 slab 段首，
-   内含 magic（0x534C5542）、容量、已用数、自由链表头、反向 cache 指针。
-5) slab 占页数取"最小的 2 的幂次"，使其至少装得下 64 字节元数据 + 1 个对象。
-6) 对象区使用**侵入式自由链表**（空闲对象头 8 字节存下一个空闲对象地址），
-   分配/释放都是 O(1)（LIFO）。
-7) 当某个 slab 的 in_use 降为 0 时，把整段页 free_pages() 归还第一层 ——
-   对象层不允许长期占着页不放。
-
-【关键不变式（最重要，请务必按此设计）】
-8) **段首元数据与所有对象的起始地址都必须落在 slab 的第 0 页内**。
-   因为 free() 手上只有对象指针，靠"指针向下按页对齐"(ptr & ~(PGSIZE-1))
-   回溯段首；若对象起点落到后面的页，就会读错页的 magic 造成泄漏。
-   为此容量 capacity 必须取两个上界的较小者：
-      ① (slab_pages*PGSIZE - 64) / objsize
-      ② (PGSIZE - 64 - 1) / objsize + 1
-   请在代码注释里解释这条推导。
-
-【接入与纪律】
-9) 在 kern/mm/pmm.c 的 pmm_init() 末尾加编译期钩子：
-   #if defined(CHALLENGE_SLUB_TEST) → slub_init(); slub_check(); #endif
-   默认关闭，绝不影响 [Test 1]/[Test 2] 的评分路径。
-10) 保留 lab2 注释；新增代码标注 //lab2 challenge 2-4 2412090。
-11) 不得修改 tools/ 下任何文件。
+要求：
+1) 严格按照上面的 [RELY]/[GUARANTEE]/[SPECIFICATION] 实现，两层架构不得越界
+   （对象层绝不自己碰 DRAM，只通过 alloc_pages/free_pages）。
+2) 请在代码注释里解释容量公式"取两个上界较小者"这条推导。
+3) 每个函数上方用注释说明它维护了哪条不变式。
+4) 保留 lab2 注释；新增代码标注 //lab2 challenge 2-4 2412090。
 
 【输出】slub_pmm.h 与 slub_pmm.c 完整代码 + 一段文字说明"为什么 free() 是 O(1)"。
 ```
 
-#### 4.3 第二份 `[PROMPT]`：针对 SLUB 设计测试
+#### 4.3 第二份 prompt 四段式（`[RELY]` / `[GUARANTEE]` / `[SPECIFICATION]` / `[PROMPT]`）
 
 ```text
+[RELY] Challenge 2-4 :: slub_check() 自测设计
+
+可依赖（已生成并接入的模块与接口）:
+  slub 模块（slub_alloc / slub_free / 观测接口）
+  pmm_manager 桩（用于故障注入）
+  nr_free_pages()（页级观测）
+
+[GUARANTEE] Challenge 2-4 :: slub_check() 自测设计
+
+交付:
+  slub_check() 完整自测，用 cprintf 逐条打印 "  [ok] ..." / "  [FAIL] ..."，
+  最后打印 [Test S] SLUB: PASS/FAIL。
+  覆盖三类内容: 核心行为 / 边界情况 / 总量守恒。
+
+禁止改动项:
+  * 不得修改 tools/ 下任何文件
+
+[SPECIFICATION] Challenge 2-4 :: slub_check() 自测设计
+
+A. 核心行为:
+  S1 档次映射：alloc(1)->8B、alloc(8)->8B（边界正好命中）、alloc(9)->16B
+     （向上取整）、alloc(17)->32B、alloc(4096)->4KiB、alloc(65536)->最大档、
+     alloc(65537) 被拒绝。
+  S2 首次分配：建立 1 个 16B 缓存；首块 slab 只占 1 页；已分配对象计数 = 1。
+  S3 打包：连续分配 32 个 16B 对象全部成功，且都落在同一个 slab 页内，
+     过程中没有再向第一层要页。
+  S4 几何：对象地址 8 字节对齐、两两不重叠。
+  S5 分档隔离：200B 请求落到 256B 档，与 16B 档用不同 slab；活跃缓存数 = 2。
+  S6 LIFO 复用：释放后立刻分配，必须原样返回同一个对象。
+  S7 级联归还：把 16B 档全部释放后，空的 slab 必须整段还给第一层
+     （对象层不再持有这一页），且已分配对象数归零。
+  S8 全档次遍历：14 个档次都能分配出 2 个互不相同的对象，遍历后持有页数复原。
+
+B. 边界情况:
+  S9 alloc(0) 返回 NULL；alloc(64KiB+1) / alloc(1MiB) 返回 NULL；
+     free(NULL) 安全；且所有失败请求都不留下记账残留。
+  S10 故障注入：临时把 pmm_manager 换成一个"永远返回 NULL"的桩，验证
+     第一层 OOM 时 slub_alloc 返回 NULL 且不留残留；自检结束后必须把
+     pmm_manager 复原。
+
+C. 总量守恒:
+  S11 8 个 128B 对象全部分配后全部释放：
+     - 已分配对象数归零；
+     - 对象层持有页数回到初值；
+     - 页级空闲页数（nr_free_pages）也回到自检开始时的值（证明无泄漏）。
+  S12 把"设计不变式"写成断言：全部 14 个档次的对象起点都落在 slab 第 0 页内。
+```
+
+```text
+[PROMPT] Challenge 2-4 :: slub_check() 自测设计
+
 请针对你刚才生成的 SLUB 实现，设计一份完整自测 slub_check()，用 cprintf 逐条
 打印 "  [ok] ..." / "  [FAIL] ..."，最后打印 [Test S] SLUB: PASS/FAIL。
-测试必须覆盖三类内容：
+测试必须逐条实现 [SPECIFICATION] 里的 S1~S12（覆盖核心行为 / 边界情况 / 总量守恒三类）。
 
-【A. 核心行为】
-S1 档次映射：alloc(1)->8B、alloc(8)->8B（边界正好命中）、alloc(9)->16B（向上取整）、
-   alloc(17)->32B、alloc(4096)->4KiB、alloc(65536)->最大档、alloc(65537) 被拒绝。
-S2 首次分配：建立 1 个 16B 缓存；首块 slab 只占 1 页；已分配对象计数 = 1。
-S3 打包：连续分配 32 个 16B 对象全部成功，且都落在同一个 slab 页内，
-   过程中没有再向第一层要页。
-S4 几何：对象地址 8 字节对齐、两两不重叠。
-S5 分档隔离：200B 请求落到 256B 档，与 16B 档用不同 slab；活跃缓存数 = 2。
-S6 LIFO 复用：释放后立刻分配，必须原样返回同一个对象。
-S7 级联归还：把 16B 档全部释放后，空的 slab 必须整段还给第一层
-   （对象层不再持有这一页），且已分配对象数归零。
-S8 全档次遍历：14 个档次都能分配出 2 个互不相同的对象，遍历后持有页数复原。
-
-【B. 边界情况】
-S9 alloc(0) 返回 NULL；alloc(64KiB+1) / alloc(1MiB) 返回 NULL；
-   free(NULL) 安全；且所有失败请求都不留下记账残留。
-S10 故障注入：临时把 pmm_manager 换成一个"永远返回 NULL"的桩，验证
-   第一层 OOM 时 slub_alloc 返回 NULL 且不留残留；自检结束后必须把
-   pmm_manager 复原。
-
-【C. 总量守恒】
-S11 8 个 128B 对象全部分配后全部释放：
-    - 已分配对象数归零；
-    - 对象层持有页数回到初值；
-    - 页级空闲页数（nr_free_pages）也回到自检开始时的值（证明无泄漏）。
-S12 把"设计不变式"写成断言：全部 14 个档次的对象起点都落在 slab 第 0 页内。
-
-【要求】
-- 说明：为什么 S11 必须**同时**检查对象层记账和页级 nr_free_pages，
-  只查一层会漏掉哪类 bug？
-- 说明：S12 这条断言是为了防止哪一类具体错误？
-- 不得修改 tools/ 下任何文件。
+另外请回答：
+- 为什么 S11 必须同时检查对象层记账和页级 nr_free_pages，只查一层会漏掉哪类 bug？
+- 为什么 S12 这条断言是为了防止哪一类具体错误？
 ```
 
 #### 4.4 实现迭代过程：一个真实的多页 slab 释放 bug
@@ -1784,7 +1899,7 @@ S12 把"所有对象起点都在 slab 第 0 页内"列为设计不变式，
 | ③ | 在 qemu-4.1.1 源码中找到模拟查 TLB 的 C 代码，并通过调试说明细节 | 定位 `tlb_hit` / `load_helper` / `tlb_fill` / `get_physical_address`，并实测"填一次、命中多次" | 同上 + `logs/gdb/qemu-source-anchors.txt` |
 | ④ | QEMU 模拟的 TLB 与真实 CPU 的 TLB 的**逻辑区别**（提示：对比一条未开启虚拟地址空间的访存） | 实测 `mmu_idx=3`（M 模式）与 `mmu_idx=1`（S 模式）两条完全不同的翻译路径 | `logs/gdb/gdb-host-qemu-innards.log` |
 | ⑤ | 记录抓马有趣的细节与学到的知识 | 见 要求⑤（翻译块被 `csrw satp` 切断、反例实验死循环、`info tlb` 被删、gdbstub 走独立翻译路径） | `logs/qemu/qemu-in_asm-mmu-trace.log`、`logs/qemu/counter-experiment-no-identity-map-trap.excerpt.log` |
-| ⑥ | 记录通过大模型解决的问题与交互过程 | 见 要求⑥（5 个真实卡点 + 我们如何验证模型给的答案） | `prompt.md` 第 5 节 |
+| ⑥ | 记录通过大模型解决的问题与交互过程 | 见 要求⑥（5 个真实卡点 + 我们如何验证模型给的答案） | `prompt.md` 第 6 节 |
 
 **先把环境现实说清楚，这也是我们这一节最想强调的一点**
 
@@ -2301,7 +2416,7 @@ QEMU 用 `tlb_add_large_page()` 把"这一大块来自同一个大页"记下来�
 #### 要求⑥｜通过大模型解决的问题与交互过程
 
 这一节按"**卡在哪 → 我怎么问 → 大模型给了什么 → 我怎么验证 → 最后结论**"记录。
-完整 prompt 全文见同目录的 `prompt.md` 第 5 节。
+完整 prompt 全文见同目录的 `prompt.md` 第 6 节。
 
 ##### 卡点 1：WSL 里"先起 qemu 再 attach"直接被内核拒绝
 
@@ -2565,7 +2680,7 @@ make clean && make DEFS=-DCHALLENGE_SLUB_TEST && timeout 15 qemu-system-riscv64 
 
 七条经验，全部来自本实验的真实迭代，不是空泛建议：
 
-- **P1 四段式 spec（输入域 / 输出域 / 不变式 / 禁止改动项）。** 把"要什么"和"不要什么"分开写，是让 AI 少跑偏的第一手段。本实验模块一的 spec（§四 1.2）就是按这四块写的。
+- **P1 四段式 spec（`[RELY]` 能依赖什么 / `[GUARANTEE]` 必须交付什么 / `[SPECIFICATION]` 函数行为规格 / `[PROMPT]` 做什么怎么改）。** 把"能依赖什么"和"必须交付什么（含禁止改动项）"分开写，是让 AI 少跑偏的第一手段。本实验模块一的 spec（§四 1.2）就是按这四段拆的，`[PROMPT]` 再引用前三段全文。
 - **P2 "禁止改动项"是性价比最高的一段。** 实测最有价值的一条：把"不得修改 `basic_check()` / `best_fit_check()`"、"不得在 `pmm.c` 里 `#include <test_lab2.h>`"、"`Makefile` 中不得出现 `kern/test`"写进 spec 后，AI 就不再自作主张去"顺手改测试"。**没有这段护栏时，AI 改测试来迁就实现是一种非常自然的失败模式。**
 - **P3 先写判据、再让 AI 写代码（AI 时代的 test-first）。** 本实验最有杀伤力的一个 bug 是 `page_init()` 的 **D3：空闲区下界没做页对齐**——它不崩溃、不报错，只是 `nr_free` 比期望多 1。它是被官方 `check()` 里"链表 property 之和 == `nr_free`"这条**独立判据**抓住的。结论很清楚：**"跑起来了"没有证明力，只有独立判据有。**
 - **P4 要求 AI 把注释绑到不变式上。** 在 prompt 里写"每个函数上方用注释说明它维护了哪条不变式"，得到的代码**审查成本低一个量级**——人不用重新推导意图，只要逐条核对"它说的这条，代码真的做到了吗"。
