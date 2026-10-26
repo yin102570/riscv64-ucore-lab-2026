@@ -70,6 +70,7 @@ best_fit_alloc_pages(size_t n) {
         if (p->property >= n) {
             if (page == NULL || p->property < page->property) {
                 page = p;
+                if (page->property == n) break; /* 精确命中，不可能更优 */
             }
         }
     }

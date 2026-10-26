@@ -86,7 +86,7 @@ static void buddy_system_init_memmap(struct Page *base, size_t n) {
         size_t size = buddy_block_pages(order);
         cur->property = (unsigned int)size;
         SetPageProperty(cur);
-        list_add(&buddy_list(order), &(cur->page_link)); /* 尾插，保持地址升序 */
+        list_add(&buddy_list(order), &(cur->page_link)); /* 头插（list_add 插到 head->next） */
         cur += size;
         remain -= size;
     }
@@ -161,6 +161,7 @@ static void buddy_system_free_pages(struct Page *base, size_t n) {
         list_del_init(&buddy->page_link);
         ClearPageProperty(buddy);
         if (buddy < block) {
+            ClearPageProperty(block); /* 旧块首变成块内普通页，清除空闲标记 */
             block = buddy; /* 合并后取地址较小的那个作为新块首 */
         }
         size <<= 1;
@@ -181,7 +182,7 @@ static size_t buddy_system_nr_free_pages(void) {
  * 系统特有的几条不变量逐条设卡：
  *   B1 初始切块：阶链表里的块必须大小对齐、property 与阶一致、总额守恒；
  *   B2 往返不变性：分配 1 页再释放，阶分布必须与分配前逐阶一致（说明 split
- *      与 coalesce 互为逆操作，且地址升序链表没有被破坏）；
+ *      与 coalesce 互为逆操作，且链表未被破坏）；
  *   B3 2 的幂次上取整：alloc_pages(3) 必须返回 4 页、按 4 页对齐的块；
  *   B4 拆分正确性：拆到 order 0 的过程中，每个低阶兄弟块都真的在链表里；
  *   B5 合并正确性：按 LIFO 归还后必须重新合成最初的大块；
@@ -295,6 +296,27 @@ static void buddy_system_check(void) {
     BUDDY_EXPECT(buddy_order_same(fingerprint, fp_after),
                  "B5 LIFO 归还后逐级合并回最初的块（阶分布复原）");
     BUDDY_EXPECT(buddy_nr_free == total, "B5 合并后空闲页总数复原");
+
+    /* B5+ 正序释放 + 二次整块释放：先低后高地还回两个伙伴半块，
+     * 再分配并还回合并后的整块。低半块先归还时高半块还不是空闲，
+     * 归还高半块时低地址伙伴已空闲，会命中 free 合并里 buddy < block
+     * 的分支——旧高半块块首若不清除 PG_property，下面这次整块 free 的
+     * assert(!PageProperty) 会直接 panic。 */
+    struct Page *lo = alloc_pages(2), *hi = alloc_pages(2);
+    BUDDY_EXPECT(lo != NULL && hi != NULL && lo < hi, "B5+ 分配两个 order-1 伙伴半块");
+    if (lo != NULL && hi != NULL) {
+        free_pages(lo, 2); /* 低半块先还 */
+        free_pages(hi, 2); /* 高半块后还，触发 buddy < block 合并 */
+        struct Page *whole = alloc_pages(4);
+        BUDDY_EXPECT(whole == lo, "B5+ 两个半块合并回 order-2 整块");
+        if (whole != NULL) {
+            free_pages(whole, 4); /* 无修复时此处 assert(!PageProperty) panic */
+        }
+    }
+    buddy_order_fingerprint(fp_after);
+    BUDDY_EXPECT(buddy_order_same(fingerprint, fp_after),
+                 "B5+ 正序归还后阶分布复原（覆盖 buddy < block 分支）");
+    BUDDY_EXPECT(buddy_nr_free == total, "B5+ 正序释放后空闲页总数复原");
 
     /* B6 边界：请求超过空闲总量必须返回 NULL */
     BUDDY_EXPECT(alloc_pages(buddy_nr_free + 1) == NULL,

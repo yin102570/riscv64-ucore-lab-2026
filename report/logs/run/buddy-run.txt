@@ -1,5 +1,5 @@
 
-OpenSBI v1.0
+OpenSBI v1.8
    ____                    _____ ____ _____
   / __ \                  / ____|  _ \_   _|
  | |  | |_ __   ___ _ __ | (___ | |_) || |
@@ -9,43 +9,62 @@ OpenSBI v1.0
         | |
         |_|
 
-Platform Name             : riscv-virtio,qemu
-Platform Features         : medeleg
-Platform HART Count       : 1
-Platform IPI Device       : aclint-mswi
-Platform Timer Device     : aclint-mtimer @ 10000000Hz
-Platform Console Device   : uart8250
-Platform HSM Device       : ---
-Platform Reboot Device    : sifive_test
-Platform Shutdown Device  : sifive_test
-Firmware Base             : 0x80000000
-Firmware Size             : 252 KB
-Runtime SBI Version       : 0.3
+Platform Name               : riscv-virtio,qemu
+Platform Features           : medeleg
+Platform HART Count         : 1
+Platform HART Protection    : pmp
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : uart8250
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : syscon-reboot
+Platform Shutdown Device    : syscon-poweroff
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 321 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 65 KB
+Firmware Heap Offset        : 0x47000
+Firmware Heap Size          : 37 KB (total), 0 KB (reserved), 12 KB (used), 23 KB (free)
+Firmware Scratch Size       : 4096 B (total), 1464 B (used), 2632 B (free)
+Runtime SBI Version         : 3.0
+Standard SBI Extensions     : ipi,pmu,srst,sse,hsm,rfnc,fwft,time,base,legacy,dbcn,dbtr
+Experimental SBI Extensions : none
 
-Domain0 Name              : root
-Domain0 Boot HART         : 0
-Domain0 HARTs             : 0*
-Domain0 Region00          : 0x0000000002000000-0x000000000200ffff (I)
-Domain0 Region01          : 0x0000000080000000-0x000000008003ffff ()
-Domain0 Region02          : 0x0000000000000000-0xffffffffffffffff (R,W,X)
-Domain0 Next Address      : 0x0000000080200000
-Domain0 Next Arg1         : 0x0000000087000000
-Domain0 Next Mode         : S-mode
-Domain0 SysReset          : yes
+Domain0 Name                : root
+Domain0 Boot HART           : 0
+Domain0 HARTs               : 0*
+Domain0 Region00            : 0x0000000080040000-0x000000008005ffff M: (F,R,W) S/U: ()
+Domain0 Region01            : 0x0000000080000000-0x000000008003ffff M: (F,R,X) S/U: ()
+Domain0 Region02            : 0x0000000000100000-0x0000000000100fff M: (I,R,W) S/U: (R,W)
+Domain0 Region03            : 0x0000000010000000-0x0000000010000fff M: (I,R,W) S/U: (R,W)
+Domain0 Region04            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+Domain0 Region05            : 0x000000000c400000-0x000000000c5fffff M: (I,R,W) S/U: (R,W)
+Domain0 Region06            : 0x000000000c000000-0x000000000c3fffff M: (I,R,W) S/U: (R,W)
+Domain0 Region07            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000080200000
+Domain0 Next Arg1           : 0x0000000087e00000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
 
-Boot HART ID              : 0
-Boot HART Domain          : root
-Boot HART ISA             : rv64imafdcsuh
-Boot HART Features        : scounteren,mcounteren,time
-Boot HART PMP Count       : 16
-Boot HART PMP Granularity : 4
-Boot HART PMP Address Bits: 54
-Boot HART MHPM Count      : 0
-Boot HART MIDELEG         : 0x0000000000001666
-Boot HART MEDELEG         : 0x0000000000f0b509
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64imafdch
+Boot HART ISA Extensions    : sstc,zicntr,zihpm,zicboz,zicbom,sdtrig,svadu
+Boot HART PMP Count         : 16
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 54
+Boot HART MHPM Info         : 16 (0x0007fff8)
+Boot HART Debug Triggers    : 2 triggers
+Boot HART MIDELEG           : 0x0000000000001666
+Boot HART MEDELEG           : 0x0000000000f4b509
 DTB Init
 HartID: 0
-DTB Address: 0x87000000
+DTB Address: 0x87e00000
 Physical Memory from DTB:
   Base: 0x0000000080000000
   Size: 0x0000000008000000 (128 MB)
@@ -54,7 +73,7 @@ DTB init completed
 (THU.CST) os is loading ...
 Special kernel symbols:
   entry  0xffffffffc02000d6 (virtual)
-  etext  0xffffffffc02018e8 (virtual)
+  etext  0xffffffffc0201ada (virtual)
   edata  0xffffffffc0206018 (virtual)
   end    0xffffffffc0206190 (virtual)
 Kernel executable memory footprint: 25KB
@@ -78,6 +97,10 @@ physical memory map:
   [ok]   B4 8 个块的页描述符互不重复（拆分没有重叠）
   [ok]   B5 LIFO 归还后逐级合并回最初的块（阶分布复原）
   [ok]   B5 合并后空闲页总数复原
+  [ok]   B5+ 分配两个 order-1 伙伴半块
+  [ok]   B5+ 两个半块合并回 order-2 整块
+  [ok]   B5+ 正序归还后阶分布复原（覆盖 buddy < block 分支）
+  [ok]   B5+ 正序释放后空闲页总数复原
   [ok]   B6 请求超过空闲总量返回 NULL
   [ok]   B6 失败的请求不改变空闲页数
   [ok]   B7 连续分配 64 个单页全部成功
@@ -87,4 +110,4 @@ physical memory map:
 check_alloc_page() succeeded!
 satp virtual address: 0xffffffffc0205000
 satp physical address: 0x0000000080205000
-qemu-system-riscv64: terminating on signal 15 from pid 1461 (timeout)
+qemu-system-riscv64: terminating on signal 15 from pid 473 (timeout)

@@ -71,7 +71,7 @@ QEMU 4.1.1 的源码里定位了软件 TLB 的查找代码。过程中遇到一�
 | **2410749 宋秋实** | **练习 2-1**：First-Fit 四个函数理解与思考题 | 逐函数拆解 + 改进空间 |
 | | **练习 2-2**：Best-Fit 实现 + `init_pmm_manager()` 切换 | 实现 + prompt + 迭代 + 改进空间 |
 | | **§五 测试与验证** | 验收命令原文 + 判据表 + 复跑记录 |
-| **2412090 兰雨杉** | **Challenge 2-3**：Buddy System 伙伴系统 | 两份 prompt + 模块 + 自测 B1~B7 + 覆盖说明 |
+| **2412090 兰雨杉** | **Challenge 2-3**：Buddy System 伙伴系统 | 两份 prompt + 模块 + 自测 B1~B7（含 B5+）+ 覆盖说明 |
 | | **Challenge 2-4**：SLUB 任意大小内存分配 | 两份 prompt + 两层架构 + 自测 S1~S12 + 覆盖说明 |
 | | **§六 实验总结与收获、仓库整理与截图归档** | 知识点对照表 + 未覆盖知识点表 |
 
@@ -171,7 +171,7 @@ OpenSBI 占用。以下全部是**运行期实测值**（出处：`logs/run/defa
 | # | 命令 | 用途 | 实测结果 |
 |---|---|---|---|
 | ① | `make` → `make grade` | **评分主路径**：默认 Best-Fit + `[Test 1] [Test 2]` | `Total Score: 20/20` |
-| ② | `make DEFS=-DUSE_BUDDY_PMM` | Challenge 2-3：把页级分配器换成伙伴系统 | `[Test B] Buddy System: PASS`（B1~B7 全 ok） |
+| ② | `make DEFS=-DUSE_BUDDY_PMM` | Challenge 2-3：把页级分配器换成伙伴系统 | `[Test B] Buddy System: PASS`（B1~B7，含 B5+ 全 ok） |
 | ③ | `make DEFS=-DCHALLENGE_SLUB_TEST` | Challenge 2-4：在 Best-Fit 之上跑 SLUB 自测 | `[Test S] SLUB: PASS`（S1~S12 共 40 条 `[ok]`） |
 
 运行命令（本机适配，见 §三 3.1 的原因）：
@@ -379,7 +379,7 @@ cause:000000000000000c, epc:0x0000000080200000, tval:0x0000000080200000, desc=ex
 | 4 | **物理内存探测与页描述符初始化** | **`page_init()`（`kern/mm/pmm.c`）** | **组长** | `[Test 1] Page Init: PASS` + GDB 三值复核 |
 | 5 | First-Fit 理解 | `kern/mm/default_pmm.c` | 宋秋实 | 代码走读 + 与 Best-Fit 对照 |
 | 6 | Best-Fit 实现 | `kern/mm/best_fit_pmm.c` | 宋秋实 | `[Test 2] Best-Fit: PASS` |
-| 7 | Buddy System | `kern/mm/buddy_system_pmm.c/.h` | 兰雨杉 | `[Test B] PASS`（B1~B7） |
+| 7 | Buddy System | `kern/mm/buddy_system_pmm.c/.h` | 兰雨杉 | `[Test B] PASS`（B1~B7，含 B5+） |
 | 8 | SLUB | `kern/mm/slub_pmm.c/.h` | 兰雨杉 | `[Test S] PASS`（S1~S12） |
 | 9 | GDB 调试页表 | QEMU 4.1.1 源码 + 本机 GDB | 组长 | 单步 VA→PA 翻译实录 |
 | 10 | Challenge 1-2 思考题 | —— | 组长 | DTB / `mhartid` 两条实测 |
@@ -1175,8 +1175,10 @@ static struct Page *best_fit_alloc_pages(size_t n) {
     while ((le = list_next(le)) != &free_list) {
         struct Page *p = le2page(le, page_link);
         if (p->property >= n) {
-            if (page == NULL || p->property < page->property)
+            if (page == NULL || p->property < page->property) {
                 page = p;            // 严格小于才替换 => 并列时保留先遇到的（地址最小）
+                if (page->property == n) break;   // 精确命中：没有比 n 更小还够用的块了
+            }
         }
     }
     /* 第二步：摘链；若块比需求大就在块尾切出剩余部分，重新挂回原位 */
@@ -1237,6 +1239,9 @@ static struct Page *best_fit_alloc_pages(size_t n) {
 
 1. **碎片更小但速度更慢**：每次分配都要 O(空闲块数) 扫描。改进：把空闲块按大小
    组织成**分离链表/大小档位**，或维护"最小可用块"索引（但维护索引本身也有成本）。
+   我们做了一处零成本的微优化：**扫描中一旦遇到 `property == n` 的精确命中块就
+   `break`**——它已经是"最小够用"的最优解，不可能有更小的还能满足需求，
+   省掉剩余扫描。
 2. **Best-Fit 并不总是最优**：它容易产生大量"刚好够用"的小碎片（所谓
    "best-fit 会把内存切成谁也不够用的碎片"）。工程上常用 **First-Fit + 定期整理**
    或 **Buddy + Slab** 的组合替代。
@@ -1382,6 +1387,9 @@ $O(\log N)$，不像 First/Best-Fit 那样要 O(空闲块数) 扫描。**代价*
   B3 2 的幂次上取整：alloc_pages(3) 必须返回 property==4 且页号按 4 页对齐的块。
   B4 拆分正确性：连续分配 8 个单页，8 个页描述符必须两两不同（拆分不重叠）。
   B5 合并正确性：按 LIFO 顺序把这些页归还后，阶分布指纹必须回到原点。
+  B5+ 正序合并：先分配两个 order-1 伙伴半块，先还低半块、再还高半块（命中
+      free 合并里 buddy < block 的分支），随后分配并还回合并后的 order-2 整块；
+      验证不变式 I2 的后半句——块内非首页不得残留 PageProperty 标记。
   B6 边界：alloc_pages(nr_free + 1) 必须返回 NULL，且不改变 nr_free。
   B7 压力：连续分配 64 个单页、再逆序全部释放，指纹与 nr_free 都必须复原。
 ```
@@ -1391,7 +1399,7 @@ $O(\log N)$，不像 First/Best-Fit 那样要 O(空闲块数) 扫描。**代价*
 
 请针对你刚才生成的 Buddy System 实现，设计一份能真正抓住伙伴系统特有错误的
 自测函数 buddy_system_check()（作为 pmm_manager 的 .check 成员被调用），
-在【能分配能释放】之外，逐条实现 [SPECIFICATION] 里的 B1~B7。
+在【能分配能释放】之外，逐条实现 [SPECIFICATION] 里的 B1~B7（含 B5+）。
 测试必须用 cprintf 逐条打印 "  [ok] xxx" / "  [FAIL] xxx (line N)"，
 最后打印 [Test B] Buddy System: PASS/FAIL。
 
@@ -1423,6 +1431,10 @@ physical memory map:
   [ok]   B4 8 个块的页描述符互不重复（拆分没有重叠）
   [ok]   B5 LIFO 归还后逐级合并回最初的块（阶分布复原）
   [ok]   B5 合并后空闲页总数复原
+  [ok]   B5+ 分配两个 order-1 伙伴半块
+  [ok]   B5+ 两个半块合并回 order-2 整块
+  [ok]   B5+ 正序归还后阶分布复原（覆盖 buddy < block 分支）
+  [ok]   B5+ 正序释放后空闲页总数复原
   [ok]   B6 请求超过空闲总量返回 NULL
   [ok]   B6 失败的请求不改变空闲页数
   [ok]   B7 连续分配 64 个单页全部成功
@@ -1435,13 +1447,13 @@ physical memory map:
 > 这是"页级初始化"与"页级分配算法"之间的一条独立交叉校验。
 
 
-![EV3：Buddy System 自测 B1~B7 全部通过](images/shot-EV3-buddy-pass.png)
+![EV3：Buddy System 自测 B1~B7（含 B5+）全部通过](images/shot-EV3-buddy-pass.png)
 
-**图 EV3 结论**：`total free pages = 31929, max order = 11`，B1~B7 共 20 条 `[ok]` 后打印 `[Test B] Buddy System: PASS`。其中"阶分布指纹回到原点"（B2/B5/B7）是抓 `split/coalesce` 不对称的关键判据。
+**图 EV3 结论**：`total free pages = 31929, max order = 11`，B1~B7（含 B5+）共 24 条 `[ok]` 后打印 `[Test B] Buddy System: PASS`。其中"阶分布指纹回到原点"（B2/B5/B7）是抓 `split/coalesce` 不对称的关键判据；B5+ 用"先低后高"的正序释放专门覆盖了 LIFO 测不到的 `buddy < block` 分支，直接验证不变式 I2 的"块内非首页无残留标记"。
 #### 3.5 测试覆盖了什么 / 为什么有效
 
 **覆盖的核心行为**：初始切块的对齐与守恒（B1）、单页往返（B2）、幂次上取整（B3）、
-拆分不重叠（B4）、合并复原（B5）、总量越界（B6）、64 页压力（B7）。
+拆分不重叠（B4）、合并复原（B5）、正序合并与块内标记清理（B5+）、总量越界（B6）、64 页压力（B7）。
 
 **为什么有效**（三条理由，都能说清"抓什么错"）：
 
@@ -2417,7 +2429,7 @@ QEMU 用 `tlb_add_large_page()` 把"这一大块来自同一个大页"记下来�
 |---|---|---|---|---|
 | ① | `make grade` | `[Test 1] Page Init: PASS`、`[Test 2] Best-Fit: PASS`、`Total Score: 20/20` | ✅ | `logs/run/grade.txt` |
 | ② | `make` → `qemu-system-riscv64 ... -kernel bin/ucore.img` | `memory management: best_fit_pmm_manager`、`check_alloc_page() succeeded!` | ✅ | `logs/run/default-run.txt` |
-| ③ | `make DEFS=-DUSE_BUDDY_PMM` + 运行 | `[Test B] Buddy System: PASS`（B1~B7） | ✅ | `logs/run/buddy-run.txt` |
+| ③ | `make DEFS=-DUSE_BUDDY_PMM` + 运行 | `[Test B] Buddy System: PASS`（B1~B7，含 B5+） | ✅ | `logs/run/buddy-run.txt` |
 | ④ | `make DEFS=-DCHALLENGE_SLUB_TEST` + 运行 | `[Test S] SLUB: PASS`（S1~S12，40 条 `[ok]`） | ✅ | `logs/run/slub-run.txt` |
 | ⑤ | 反例实验：`entry.S` 项 2 改 0 | 无任何内核输出 + `-d int` 出现 `exec_page_fault` @ `epc=0x80200038` | ✅（证明修复必要） | `logs/qemu/counter-experiment-no-identity-map-trap.excerpt.log` |
 
@@ -2453,8 +2465,9 @@ Challenge 没有官方测试，所以我们**自己写判据**，并且刻意"�
 | | B3 | `alloc_pages(3)`：请求 **上取整** 到 order-2、返回块按 4 页对齐、归还后复原 | 边界值 + 对齐 |
 | | B4 | 连分 8 个 order-0 块：8 个块的页描述符**互不重复**（拆分不重叠） | 集合唯一性 |
 | | B5 | **LIFO** 归还后逐级合并回最初的大块（阶分布复原） | 指纹比对 |
-| | B6 | 跨阶大小请求混跑后总账守恒 | 守恒断言 |
-| | B7 | 全部分配→全部分配耗尽（`alloc` 返回 NULL）→全部释放后阶分布复原 | 耗尽 + 复原 |
+| | B5+ | **先低后高**正序释放两个伙伴半块，再分配并还回合并后的整块；验证块内非首页无残留 `PageProperty` | 不变式 I2 + 分支覆盖 |
+| | B6 | 边界：`alloc_pages(nr_free + 1)` 返回 NULL，且不改变 `nr_free` | 边界值 |
+| | B7 | 压力：连续分配 64 个单页、再逆序全部释放，指纹与 `nr_free` 都必须复原 | 压力 + 复原 |
 | **SLUB** | S1 | 14 个大小档次的**向上取整**边界（1→8、8→8、9→16、17→32、4096→4K、64K→64K、64K+1 拒绝） | 边界值 |
 | | S2 | 首次分配建立 1 个缓存、首块 slab 只占 1 页、对象计数 = 1 | 结构断言 |
 | | S3 | 32 个 16 B 对象**打包在同一页**且不再向第一层要页 | 打包效率 |
@@ -2483,7 +2496,7 @@ Challenge 没有官方测试，所以我们**自己写判据**，并且刻意"�
 5. **S12 是"把设计约束写成断言"**。我们要求"所有对象起点都在 slab 第 0 页内"，
    这条不变式一旦写成断言，SLUB 里那个**多页 slab 释放 bug** 就再也不可能复发。
 
- > **Challenge 的实况截图**：Buddy 的 B1~B7 原始输出见 §四 3.4（**图 EV3**），SLUB 的 S1~S12 原始输出见 §四 4.5（**图 EV4**）；下表是对这两屏逐条对应的判据解读。 
+ > **Challenge 的实况截图**：Buddy 的 B1~B7（含 B5+）原始输出见 §四 3.4（**图 EV3**），SLUB 的 S1~S12 原始输出见 §四 4.5（**图 EV4**）；下表是对这两屏逐条对应的判据解读。 
 ### 5.3 可重跑性
 
 上面 5 条命令都在同一台机器上重复跑过至少 3 次，结果一致（无随机失败）。
@@ -2524,7 +2537,7 @@ make clean && make DEFS=-DCHALLENGE_SLUB_TEST && timeout 15 qemu-system-riscv64 
 | 1 | 物理页 / 物理页号 PPN | `page2ppn(page)=page-pages+nbase`；`nbase=524288`、`npage=557056`；`pages[]` 共 **32768** 项（`logs/gdb/gdb-memory-numbers.log`） | 物理内存被划成等长**页框**，页框号即物理地址高位 | 本实验把"物理页"当**页框**管：`pages[i]` 描述物理页号 `nbase+i`，与"当前哪个虚拟页在用"无关。32768 × 4096 B = 128 MiB，与 DTB 报出的 `[0x80000000,0x88000000)` 逐字节吻合——这条算术互证了"页描述符数组必须覆盖整段物理内存" |
 | 2 | 页描述符 `struct Page` | `sizeof(struct Page)=40`（GDB）；字段实测为 `int ref; uint64_t flags; unsigned int property; list_entry_t page_link;`（`kern/mm/memlayout.h` 原文） | Linux `struct page`：每页的元数据（标志位、引用计数、映射信息） | 本实验的 `property` 是 **ucore 独有语义**（记录"本空闲块有多少页"，见 `default_pmm.c` / `best_fit_pmm.c`），Linux 的 `struct page` 没有这个字段。本行只断言我们实测到的 **40 字节**，**不写** Linux 的尺寸 |
 | 3 | 连续物理内存分配（First-Fit / Best-Fit） | `[Test 1] PASS`、`[Test 2] PASS`，`make grade` **20/20**（`logs/run/grade.txt`）；三个分配器的 `alloc_pages(n)` 都返回**连续 n 页**的首页 | 连续分配（contiguous） ↔ 非连续/离散分配（non-contiguous） | 本实验两层都建立在"物理连续"假设上。**"非连续物理页 + 连续虚拟地址"的 `vmalloc` 机制本实验没有**：实测 `grep 'vmalloc'` 只在注释里命中 2 次（`logs/static/r7-keyword-scan.txt`），代码中没有实现体 |
-| 4 | 伙伴系统（Challenge 2-3） | `max order = 11`（`logs/run/buddy-run.txt` 原文打印）；伙伴下标 `idx ^ size`；空闲块按阶挂在 11 条 `free_area_t` 链表上；B1~B7 全 `[ok]` | 二进制伙伴分配器（binary buddy） | 本实验用**按阶空闲链表**组织空闲块。**没有伙伴位图**：实测在 `buddy_system_pmm.c` 内搜索 `bitmap` **0 命中**——即本实验判断"伙伴是否空闲"靠**读伙伴块首页的 `PageProperty`**，而不是位图。这条差别可在源码里直接复查 |
+| 4 | 伙伴系统（Challenge 2-3） | `max order = 11`（`logs/run/buddy-run.txt` 原文打印）；伙伴下标 `idx ^ size`；空闲块按阶挂在 11 条 `free_area_t` 链表上；B1~B7（含 B5+）全 `[ok]` | 二进制伙伴分配器（binary buddy） | 本实验用**按阶空闲链表**组织空闲块。**没有伙伴位图**：实测在 `buddy_system_pmm.c` 内搜索 `bitmap` **0 命中**——即本实验判断"伙伴是否空闲"靠**读伙伴块首页的 `PageProperty`**，而不是位图。这条差别可在源码里直接复查 |
 | 5 | SLUB（Challenge 2-4） | `classes: 14, min = 8 B, max = 65536 B`（`logs/run/slub-run.txt` 原文）；`struct kmem_cache` + 段内 LIFO 自由链表；S7 实测"空的 16 B slab 已整段归还" | slab 分配器：对象级分配，消除内部碎片 | 本实验的 `kmem_cache` 只保留 **slab 链表 + 段内自由链表**；实测在 `slub_pmm.c` 内搜索 `partial`、`per_cpu` **均 0 命中**，即**没有 partial 链表、没有 per-CPU 缓存**。并且"slab 一旦全空就立刻整段归还第一层"（S7 实测），与"保留空 slab 复用"的策略相反——这是我们为"两层架构可观测、可自检"做的取舍 |
 | 6 | 页表 / MMU / TLB 的三级协作 | Sv39 三级；`satp=0x8000000000080205` → 根表 PA `0x80205000`；项[2]=项[511]=`0x200000cf`；一条取指 `0xffffffffc02000d6 → 0x802000d6`（`logs/gdb/gdb-host-qemu-innards.log:943-949`） | 虚拟地址→物理地址翻译；TLB 作为翻译结果的高速缓存 | **本节最重要的一条**：本实验的 `page_init()` **只建立"页描述符数组"和空闲链表**，真正把 VA 翻译成 PA 的**三级遍历由 MMU（硬件/QEMU）完成**——实测在 ucore 源码里搜索"三级遍历"相关写法 **0 命中**。所以"**物理内存管理**"（软件账本）与"**页表翻译**"（`satp` 交给硬件）是两个层次，不能混为一谈 |
 | 7 | `PG_reserved` / `PG_property` | `memlayout.h` 中**只定义了 2 个标志位**：`PG_reserved=0`、`PG_property=1`，配套 `SetPageReserved/ClearPageReserved/PageReserved` 与 `SetPageProperty/ClearPageProperty/PageProperty` 宏 | 页框标志位（page flags） | 本实验**没有独立的"已分配"位**：实测分配路径用 `ClearPageProperty(page)` 表示"这块被占用了"（`best_fit_pmm.c` 实测），即由"property 归零"兼职承担 Linux 里 `PG_allocated` 一类的语义。`PG_reserved` 虽与 Linux 同名，但本实验里它专指"这一页尚未交给分配器"（内核/固件/`pages[]` 自身，以及尚未登记进空闲链表的页），`init_memmap()` 会把登记为空闲的页的 Reserved 位清零（`default_pmm.c` 中 `p->flags = 0` 实测） |
