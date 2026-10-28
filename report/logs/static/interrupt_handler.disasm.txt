@@ -1,0 +1,57 @@
+ffffffffc02009c2 <interrupt_handler>:
+ffffffffc02009c2:	11853583          	ld	a1,280(a0)
+ffffffffc02009c6:	4715                	li	a4,5
+ffffffffc02009c8:	00159793          	slli	a5,a1,0x1
+ffffffffc02009cc:	8385                	srli	a5,a5,0x1
+ffffffffc02009ce:	02e78463          	beq	a5,a4,ffffffffc02009f6 <interrupt_handler+0x34>
+ffffffffc02009d2:	4725                	li	a4,9
+ffffffffc02009d4:	00e78b63          	beq	a5,a4,ffffffffc02009ea <interrupt_handler+0x28>
+ffffffffc02009d8:	4705                	li	a4,1
+ffffffffc02009da:	06e79763          	bne	a5,a4,ffffffffc0200a48 <interrupt_handler+0x86>
+ffffffffc02009de:	00002517          	auipc	a0,0x2
+ffffffffc02009e2:	c7a50513          	addi	a0,a0,-902 # ffffffffc0202658 <etext+0x768>
+ffffffffc02009e6:	ee6ff06f          	j	ffffffffc02000cc <cprintf>
+ffffffffc02009ea:	00002517          	auipc	a0,0x2
+ffffffffc02009ee:	c9e50513          	addi	a0,a0,-866 # ffffffffc0202688 <etext+0x798>
+ffffffffc02009f2:	edaff06f          	j	ffffffffc02000cc <cprintf>
+ffffffffc02009f6:	1141                	addi	sp,sp,-16
+ffffffffc02009f8:	e406                	sd	ra,8(sp)
+ffffffffc02009fa:	a11ff0ef          	jal	ffffffffc020040a <clock_set_next_event>
+ffffffffc02009fe:	00006697          	auipc	a3,0x6
+ffffffffc0200a02:	a4a68693          	addi	a3,a3,-1462 # ffffffffc0206448 <ticks>
+ffffffffc0200a06:	629c                	ld	a5,0(a3)
+ffffffffc0200a08:	28f5c737          	lui	a4,0x28f5c
+ffffffffc0200a0c:	28f70713          	addi	a4,a4,655 # 28f5c28f <sbadaddr+0x28f5c14c>
+ffffffffc0200a10:	0785                	addi	a5,a5,1
+ffffffffc0200a12:	e29c                	sd	a5,0(a3)
+ffffffffc0200a14:	6288                	ld	a0,0(a3)
+ffffffffc0200a16:	5c28f637          	lui	a2,0x5c28f
+ffffffffc0200a1a:	1702                	slli	a4,a4,0x20
+ffffffffc0200a1c:	5c360613          	addi	a2,a2,1475 # 5c28f5c3 <sbadaddr+0x5c28f480>
+ffffffffc0200a20:	00255793          	srli	a5,a0,0x2
+ffffffffc0200a24:	9732                	add	a4,a4,a2
+ffffffffc0200a26:	02e7b7b3          	mulhu	a5,a5,a4
+ffffffffc0200a2a:	06400593          	li	a1,100
+ffffffffc0200a2e:	8389                	srli	a5,a5,0x2
+ffffffffc0200a30:	02b787b3          	mul	a5,a5,a1
+ffffffffc0200a34:	02f50563          	beq	a0,a5,ffffffffc0200a5e <interrupt_handler+0x9c>
+ffffffffc0200a38:	6298                	ld	a4,0(a3)
+ffffffffc0200a3a:	3e700793          	li	a5,999
+ffffffffc0200a3e:	00e7ec63          	bltu	a5,a4,ffffffffc0200a56 <interrupt_handler+0x94>
+ffffffffc0200a42:	60a2                	ld	ra,8(sp)
+ffffffffc0200a44:	0141                	addi	sp,sp,16
+ffffffffc0200a46:	8082                	ret
+ffffffffc0200a48:	2581                	sext.w	a1,a1
+ffffffffc0200a4a:	00002517          	auipc	a0,0x2
+ffffffffc0200a4e:	c5e50513          	addi	a0,a0,-930 # ffffffffc02026a8 <etext+0x7b8>
+ffffffffc0200a52:	e7aff06f          	j	ffffffffc02000cc <cprintf>
+ffffffffc0200a56:	60a2                	ld	ra,8(sp)
+ffffffffc0200a58:	0141                	addi	sp,sp,16
+ffffffffc0200a5a:	3d80106f          	j	ffffffffc0201e32 <sbi_shutdown>
+ffffffffc0200a5e:	00002517          	auipc	a0,0x2
+ffffffffc0200a62:	c1a50513          	addi	a0,a0,-998 # ffffffffc0202678 <etext+0x788>
+ffffffffc0200a66:	e66ff0ef          	jal	ffffffffc02000cc <cprintf>
+ffffffffc0200a6a:	00006697          	auipc	a3,0x6
+ffffffffc0200a6e:	9de68693          	addi	a3,a3,-1570 # ffffffffc0206448 <ticks>
+ffffffffc0200a72:	b7d9                	j	ffffffffc0200a38 <interrupt_handler+0x76>
+

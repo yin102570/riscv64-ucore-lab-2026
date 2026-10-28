@@ -1,0 +1,41 @@
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/mm/pmm.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/mm/default_pmm.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/mm/best_fit_pmm.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/trap/trapentry.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/trap/trap.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/driver/intr.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/driver/dtb.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/driver/console.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/driver/clock.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/debug/panic.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/debug/kmonitor.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/debug/kdebug.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/libs/stdio.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/init/init.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/kern/init/entry.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/libs/string.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/libs/sbi.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/libs/readline.d'
+<command-line>: error: macro names must be identifiers
+make: *** Deleting file 'obj/libs/printfmt.d'
++ cc kern/init/entry.S
+<command-line>: error: macro names must be identifiers
+make: *** [Makefile:118: obj/kern/init/entry.o] Error 1

@@ -1,0 +1,16 @@
+# Controlled reproduction of the early-SUM-clear bug
+# Tree: /tmp copy; only difference: tf->status &= ~SSTATUS_SUM before RESTORE_ALL
+# GDB: break __alltraps, print sp/sepc/scause/satp on every entry
+
+Breakpoint 1 at 0xffffffffc0200f38: file kern/trap/trapentry.S, line 110.
+TRAP sp=4000 sepc=1004 scause=8 satp=800000000008020f
+TRAP sp=3ee0 sepc=ffffffffc0200fa8 scause=d satp=800000000008020f
+TRAP sp=3dc0 sepc=ffffffffc0200f3e scause=f satp=800000000008020f
+TRAP sp=3ca0 sepc=ffffffffc0200f3e scause=f satp=800000000008020f
+TRAP sp=3b80 sepc=ffffffffc0200f3e scause=f satp=800000000008020f
+TRAP sp=3a60 sepc=ffffffffc0200f3e scause=f satp=800000000008020f
+TRAP sp=3940 sepc=ffffffffc0200f3e scause=f satp=800000000008020f
+TRAP sp=3820 sepc=ffffffffc0200f3e scause=f satp=800000000008020f
+TRAP sp=3700 sepc=ffffffffc0200f3e scause=f satp=800000000008020f
+TRAP sp=35e0 sepc=ffffffffc0200f3e scause=f satp=800000000008020f
+TRAP sp=34c0 sepc=ffffffffc0200f3e scause=f satp=800000000008020f

@@ -1,0 +1,76 @@
+ffffffffc0200a74 <exception_handler>:
+ffffffffc0200a74:	11853703          	ld	a4,280(a0)
+ffffffffc0200a78:	1101                	addi	sp,sp,-32
+ffffffffc0200a7a:	ec06                	sd	ra,24(sp)
+ffffffffc0200a7c:	46a1                	li	a3,8
+ffffffffc0200a7e:	87aa                	mv	a5,a0
+ffffffffc0200a80:	06d70d63          	beq	a4,a3,ffffffffc0200afa <exception_handler+0x86>
+ffffffffc0200a84:	04e6e263          	bltu	a3,a4,ffffffffc0200ac8 <exception_handler+0x54>
+ffffffffc0200a88:	4689                	li	a3,2
+ffffffffc0200a8a:	08d70063          	beq	a4,a3,ffffffffc0200b0a <exception_handler+0x96>
+ffffffffc0200a8e:	460d                	li	a2,3
+ffffffffc0200a90:	06c71163          	bne	a4,a2,ffffffffc0200af2 <exception_handler+0x7e>
+ffffffffc0200a94:	10853583          	ld	a1,264(a0)
+ffffffffc0200a98:	e02a                	sd	a0,0(sp)
+ffffffffc0200a9a:	00002517          	auipc	a0,0x2
+ffffffffc0200a9e:	c2e50513          	addi	a0,a0,-978 # ffffffffc02026c8 <etext+0x7d8>
+ffffffffc0200aa2:	e43a                	sd	a4,8(sp)
+ffffffffc0200aa4:	e28ff0ef          	jal	ffffffffc02000cc <cprintf>
+ffffffffc0200aa8:	6782                	ld	a5,0(sp)
+ffffffffc0200aaa:	6722                	ld	a4,8(sp)
+ffffffffc0200aac:	4689                	li	a3,2
+ffffffffc0200aae:	1087b603          	ld	a2,264(a5)
+ffffffffc0200ab2:	00065583          	lhu	a1,0(a2)
+ffffffffc0200ab6:	898d                	andi	a1,a1,3
+ffffffffc0200ab8:	08e58563          	beq	a1,a4,ffffffffc0200b42 <exception_handler+0xce>
+ffffffffc0200abc:	60e2                	ld	ra,24(sp)
+ffffffffc0200abe:	9636                	add	a2,a2,a3
+ffffffffc0200ac0:	10c7b423          	sd	a2,264(a5)
+ffffffffc0200ac4:	6105                	addi	sp,sp,32
+ffffffffc0200ac6:	8082                	ret
+ffffffffc0200ac8:	46a5                	li	a3,9
+ffffffffc0200aca:	02d71463          	bne	a4,a3,ffffffffc0200af2 <exception_handler+0x7e>
+ffffffffc0200ace:	10853583          	ld	a1,264(a0)
+ffffffffc0200ad2:	e02a                	sd	a0,0(sp)
+ffffffffc0200ad4:	00002517          	auipc	a0,0x2
+ffffffffc0200ad8:	c4c50513          	addi	a0,a0,-948 # ffffffffc0202720 <etext+0x830>
+ffffffffc0200adc:	df0ff0ef          	jal	ffffffffc02000cc <cprintf>
+ffffffffc0200ae0:	6782                	ld	a5,0(sp)
+ffffffffc0200ae2:	60e2                	ld	ra,24(sp)
+ffffffffc0200ae4:	1087b703          	ld	a4,264(a5)
+ffffffffc0200ae8:	0711                	addi	a4,a4,4
+ffffffffc0200aea:	10e7b423          	sd	a4,264(a5)
+ffffffffc0200aee:	6105                	addi	sp,sp,32
+ffffffffc0200af0:	8082                	ret
+ffffffffc0200af2:	60e2                	ld	ra,24(sp)
+ffffffffc0200af4:	853e                	mv	a0,a5
+ffffffffc0200af6:	6105                	addi	sp,sp,32
+ffffffffc0200af8:	b5a5                	j	ffffffffc0200960 <print_trapframe>
+ffffffffc0200afa:	10853583          	ld	a1,264(a0)
+ffffffffc0200afe:	e02a                	sd	a0,0(sp)
+ffffffffc0200b00:	00002517          	auipc	a0,0x2
+ffffffffc0200b04:	c0850513          	addi	a0,a0,-1016 # ffffffffc0202708 <etext+0x818>
+ffffffffc0200b08:	bfd1                	j	ffffffffc0200adc <exception_handler+0x68>
+ffffffffc0200b0a:	10853583          	ld	a1,264(a0)
+ffffffffc0200b0e:	e02a                	sd	a0,0(sp)
+ffffffffc0200b10:	00002517          	auipc	a0,0x2
+ffffffffc0200b14:	bd050513          	addi	a0,a0,-1072 # ffffffffc02026e0 <etext+0x7f0>
+ffffffffc0200b18:	e43a                	sd	a4,8(sp)
+ffffffffc0200b1a:	db2ff0ef          	jal	ffffffffc02000cc <cprintf>
+ffffffffc0200b1e:	6782                	ld	a5,0(sp)
+ffffffffc0200b20:	458d                	li	a1,3
+ffffffffc0200b22:	6722                	ld	a4,8(sp)
+ffffffffc0200b24:	1087b683          	ld	a3,264(a5)
+ffffffffc0200b28:	0006d603          	lhu	a2,0(a3)
+ffffffffc0200b2c:	8e6d                	and	a2,a2,a1
+ffffffffc0200b2e:	00b60863          	beq	a2,a1,ffffffffc0200b3e <exception_handler+0xca>
+ffffffffc0200b32:	60e2                	ld	ra,24(sp)
+ffffffffc0200b34:	96ba                	add	a3,a3,a4
+ffffffffc0200b36:	10d7b423          	sd	a3,264(a5)
+ffffffffc0200b3a:	6105                	addi	sp,sp,32
+ffffffffc0200b3c:	8082                	ret
+ffffffffc0200b3e:	4711                	li	a4,4
+ffffffffc0200b40:	bfcd                	j	ffffffffc0200b32 <exception_handler+0xbe>
+ffffffffc0200b42:	4691                	li	a3,4
+ffffffffc0200b44:	bfa5                	j	ffffffffc0200abc <exception_handler+0x48>
+
