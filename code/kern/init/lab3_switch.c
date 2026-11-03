@@ -32,6 +32,7 @@
 #define USER_CODE_VA   0x1000UL
 #define USER_STACK_VA  0x2000UL
 #define USER_STACK_TOP 0x4000UL
+#define SWITCH_STACK_SIZE (2 * PGSIZE)
 
 #ifndef SSTATUS_SUM
 #define SSTATUS_SUM 0x00040000UL
@@ -39,7 +40,6 @@
 
 int lab3_switch_active = 0;
 
-static uintptr_t saved_kernel_sp;
 uintptr_t kernel_satp;
 
 static uintptr_t user_root[SV39_NENTRY] __attribute__((aligned(PGSIZE)));
@@ -48,7 +48,7 @@ static uintptr_t user_l0[SV39_NENTRY] __attribute__((aligned(PGSIZE)));
 static uint8_t user_code[PGSIZE] __attribute__((aligned(PGSIZE)));
 static uint8_t user_stack[2 * PGSIZE] __attribute__((aligned(PGSIZE)));
 /* 返回 S 模式后使用的挑战专用内核栈：不信任用户栈上的任何指针。 */
-uint8_t switch_stack[2 * PGSIZE] __attribute__((aligned(PGSIZE)));
+uint8_t switch_stack[SWITCH_STACK_SIZE] __attribute__((aligned(PGSIZE)));
 
 extern char boot_page_table_sv39[];
 
@@ -110,7 +110,7 @@ void __attribute__((noreturn, used)) lab3_switch_after_c(void) {
 static void __attribute__((naked, noreturn)) lab3_switch_after(void) {
     asm volatile(
         "la sp, switch_stack\n"
-        "li t0, 8192\n"
+        "li t0, 8192\n" /* = SWITCH_STACK_SIZE = 2 * PGSIZE，与 switch_stack 声明同步 */
         "add sp, sp, t0\n"
         /* 先切到可信内核栈，再关闭 SUM；否则 RESTORE_ALL 读不到用户栈上的 trapframe。 */
         "li t0, 0x40000\n"
@@ -130,7 +130,7 @@ void lab3_switch_back(struct trapframe *tf) {
 
     /* 同一条 sret 返回路径，改回挑战专用内核栈并返回 S 模式。
      * 这里不沿用用户栈上的 sp，避免把用户可控的指针带回内核。 */
-    tf->gpr.sp = (uintptr_t)switch_stack + sizeof(switch_stack) - 16;
+    tf->gpr.sp = (uintptr_t)switch_stack + SWITCH_STACK_SIZE - 16;
     tf->status |= SSTATUS_SPP;
     tf->status &= ~SSTATUS_SPIE;
     tf->epc = (uintptr_t)lab3_switch_after;
@@ -145,8 +145,6 @@ void lab3_switch_test(void) {
 
     kernel_satp = (8UL << 60) | (PADDR(boot_page_table_sv39) >> PGSHIFT);
     user_satp = (8UL << 60) | (PADDR(user_root) >> PGSHIFT);
-
-    asm volatile("mv %0, sp" : "=r"(saved_kernel_sp));
 
     /* S 模式要读写放在用户栈上的 trapframe，必须打开 SUM。 */
     sstatus = read_csr(sstatus);
