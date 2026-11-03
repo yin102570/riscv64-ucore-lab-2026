@@ -746,15 +746,15 @@ void exception_handler(struct trapframe *tf);
 
 ## 九、总结与收获
 
-这次实验给我印象最深的有三点。
+这次实验有三点体会。
 
-第一，**Trap 不是一个函数，而是一条链**。`SAVE_ALL` 的布局、`RESTORE_ALL` 的顺序、`sstatus` 的 SPP、`sepc` 的推进、`sret` 的特权级返回，任何一处不一致，现象都可能跑到别的模块去。我们最后用“布局表 + 反汇编 + 官方用例”三条证据对齐，才敢说这条链是闭合的。
+第一，Trap 不是一个函数，而是一条链。`SAVE_ALL` 的布局、`RESTORE_ALL` 的顺序、`sstatus` 的 SPP、`sepc` 的推进、`sret` 的特权级返回，任何一处不一致，现象都可能跑到别的模块去。我们最后用“布局表 + 反汇编 + 官方用例”三条证据对齐。
 
-第二，**环境差异必须写进报告**。QEMU 7.0 的 `fw_dynamic` 不认 `-device loader`，新版 binutils 不认 `sbadaddr`，这些都不是指导书里的“知识点”，但它们是真实交付的一部分。把它们写清楚，比只贴一个 100/100 的截图更有价值。
+第二，环境差异必须写进报告。QEMU 7.0 的 `fw_dynamic` 不认 `-device loader`，新版 binutils 不认 `sbadaddr`，这些都不是指导书里的“知识点”，但它们是真实交付的一部分。把它们写清楚。
 
-第三，**Challenge 的坑最有教学意义**。`SUM` 清早了一位，表面看是“栈指针坏了”，实际是“S 模式不能再读用户页”。GDB 在 `__trapret` 看到的 trapframe 完全正确，逼着我们从“寄存器值”回到“特权级和页权限”去找原因。这个 bug 让我们真正理解了 `SUM`、`sret` 和 trapframe 三者的关系。
+第三，Challenge 的坑最有教学意义。`SUM` 清早了一位，表面看是“栈指针坏了”，实际是“S 模式不能再读用户页”。GDB 在 `__trapret` 看到的 trapframe 完全正确，逼着我们从“寄存器值”回到“特权级和页权限”去找原因。
 
-最终，默认构建 `make grade` 为 **100/100**，Challenge 1 为 **PASS**。我们没有把 PPT 的缺页内容写成本次成果，也没有把没跑过的测试写成“应该通过”。这份报告里的每个数字，都能在 `report/logs/` 里找到原文。
+最终，默认构建 `make grade` 为 100/100，Challenge 1 为 PASS。我们没有把 PPT 的缺页内容写成本次成果，也没有把没跑过的测试写成“应该通过”。这份报告里的每个数字，都能在 `report/logs/` 里找到原文。
 
 ---
 
