@@ -184,8 +184,8 @@ SUM 必须保持到 trapframe 从用户栈读完之后；恢复桩要先切到�
 
 | 编号 | 现象 | 根因 | 修复 | 回归证据 |
 |---|---|---|---|---|
-| B1 | `make grade` 0/100，OpenSBI 打印 `Next Address : 0` | QEMU 7.0 的 `fw_dynamic` 不认 `-device loader` | `tools/grade.sh` 改用 `-kernel bin/ucore.img` | `logs/run/grade-final.log` 100/100 |
-| B2 | `unknown CSR sbadaddr` | 新版 binutils 删除旧 CSR 别名 | 文件头 `.equ sbadaddr, 0x143` | `logs/build/build.log` 无报错 |
+| B1 | `make grade` 0/100，OpenSBI 打印 `Next Address : 0` | QEMU 7.0 的 `fw_dynamic` 不认 `-device loader` | `tools/grade.sh` 改用 `-kernel bin/ucore.img` | `logs/run/grade-final.log` 100/100；失败现场 `logs/run/qemu-loader-failure-20261103.log` |
+| B2 | `unknown CSR sbadaddr` | 新版 binutils 删除旧 CSR 别名 | 文件头 `.equ sbadaddr, 0x143` | `logs/build/build.log` 无报错；报错复现 `logs/build/binutils-sbadaddr-20261103.log` |
 | B3 | Challenge `scause=0xd` 无限递归 | `lab3_switch_back()` 提前清 `SUM`，`RESTORE_ALL` 写回 `sstatus` 后再读用户栈上的 trapframe，触发 load page fault | 保持 `SUM` 到现场恢复完成；恢复桩先切内核栈再清 `SUM` | `logs/run/CHALLENGE.serial.log` PASS |
 | B4 | 只打印一次 `100 ticks` | 定时器分支未在入口续订 | `clock_set_next_event()` 放到分支第一行 | `logs/run/TIMER.final.log` `ticks=200` |
 | B5 | 断点返回后跑飞 | `ebreak` 被固定当作 4 字节 | 按指令低两位判断 2/4 字节 | `logs/run/CONTEXT.final.log` PASS |
@@ -216,3 +216,5 @@ make LAB3_CHALLENGE=1 && make qemu   # Challenge 1，串口应打印 PASS
 ```
 
 对应的原始日志在 `report/logs/`，截图在 `report/images/`，静态反汇编在 `report/logs/static/`。
+
+2026-11-03 我们对仓库里的当前源码重新跑过一轮：`make clean && make grade` 仍为 100/100（`logs/run/grade-recheck-20261103.log`），Challenge 仍为 PASS（`logs/run/CHALLENGE.recheck-20261103.log`）。因此本文件里的验收标准不是纸面约定，而是当前分支可复现的结果。

@@ -1,0 +1,2 @@
+/tmp/cckmkNfu.s: Assembler messages:
+/tmp/sbad.S:4: Error: unknown CSR `sbadaddr'

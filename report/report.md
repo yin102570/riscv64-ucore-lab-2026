@@ -15,7 +15,7 @@
 | 运行环境 | Windows 主机 + WSL2 Ubuntu 22.04 |
 | 交叉工具链 | `riscv64-unknown-elf-gcc 16.1.0` |
 | 模拟器 | `qemu-system-riscv64 7.0.0`，OpenSBI `fw_dynamic` |
-| 调试器 | `riscv64-unknown-elf-gdb 10.1` |
+| 调试器 | `riscv64-unknown-elf-gdb 19.0.50 (20260915-git)` |
 | 小组成员 | 2410665 殷佳仪（组长）· 2410749 宋秋实 · 2412090 兰雨杉 |
 | 报告与证据 | `report/report.md`、`report/prompt.md`、`report/logs/`、`report/images/` |
 
@@ -23,7 +23,7 @@
 
 1. “实测”与“推断”分开写。实测数字给出日志文件，按源码逻辑推出来的结论明确写“推断”。
 2. 截图全部由真实终端输出切片渲染，未手打、未改写；每张图下面注明来源文件和行号。
-3. 指导书对应 QEMU 4.1.1 的 `fw_jump`，我们本机是 QEMU 7.0 的 `fw_dynamic`。两者行为不同的地方单独说明。
+3. 指导书配套的是旧版 QEMU 的 `fw_jump` 加载方式，我们本机是 QEMU 7.0.0 的 `fw_dynamic`。两者行为不同的地方单独说明。
 4. 没有做的内容不补写。PPT 里的缺页/换页没有出现在本次代码骨架和评分脚本中，我们只把它作为背景知识，不冒充本次实验成果。
 
 ---
@@ -31,6 +31,7 @@
 ## 目录
 
 - [实验基本信息](#实验基本信息)
+- [零、要求对照](#零要求对照)
 - [小组分工](#小组分工)
 - [一、实验目的与材料判定](#一实验目的与材料判定)
 - [二、实验环境与可复现命令](#二实验环境与可复现命令)
@@ -45,6 +46,45 @@
 
 ---
 
+## 零、要求对照
+
+### 0.1 课程报告要求（7 条）
+
+| 课程要求 | 本报告位置 | 说明 |
+|---|---|---|
+| 1. 用 Markdown 完成，以文本说明为主 | 全篇 | 正文为 Markdown；截图只作为证据，不替代文字说明 |
+| 2. 整体逻辑与实现顺序 | 三 | 从 Lab2 内存管理到 Trap 闭环的逐层依赖 |
+| 3. 每个功能的核心函数/模块理解 | 四 | 模块 A、模块 B、Challenge 逐段拆解 |
+| 4. 每个练习的 spec 与 prompt | 六；全文见 `prompt.md` | 两个功能模块 + Challenge 各自都有 spec 与原始 prompt |
+| 5. AI 生成代码中的 bug 与解决 | 6.7；`prompt.md` 第 9 节 | 按“现象—根因—修复—回归”记录 6 条 |
+| 6. 重要知识点与 OS 原理对照 | 七 | 12 条逐项对照含义、关系与差异 |
+| 7. OS 原理重要但本实验未覆盖 | 八 | 9 条，明确本实验边界 |
+
+### 0.2 指导书功能模块对照
+
+| 指导书要求 | 文件与函数 | 实现说明 | 通过证据 |
+|---|---|---|---|
+| 功能模块一 | `kern/trap/trapentry.S`：`RESTORE_ALL`、`__alltraps` | 4.2 | Test 1 `PASS (35/35)`；`logs/static/trapentry.disasm.txt` |
+| 功能模块二 | `kern/trap/trap.c`：`interrupt_handler()`、`exception_handler()` | 4.3 | Test 2 `PASS (25/25)`、Test 3 `PASS (40/40)` |
+| 扩展（自定 Challenge） | `kern/init/lab3_switch.c` | 4.4 | `logs/run/CHALLENGE.serial.log`：`PASS: S -> U -> S` |
+
+说明：指导书没有给出固定的 Challenge 题目，骨架里也没有预留钩子；我们按本章主线自定了“特权级往返”这一扩展，并用编译宏隔离。
+
+### 0.3 指导书注意事项逐条落实
+
+| 指导书注意事项 | 我们的做法 | 核对方式 |
+|---|---|---|
+| 不得修改 `SAVE_ALL`、`struct trapframe`、`trap()` 签名 | `SAVE_ALL` 与骨架逐字一致；`trap.h` 未改；`trap()` 签名未改 | 文本比对 + `git diff` |
+| `x2(sp)` 的处理与其他寄存器不同 | `sp` 最后从 `2*REGBYTES(sp)` 恢复 | `trapentry.disasm.txt` |
+| `__alltraps` 按调用约定传 `trapframe *` | `mv a0, sp; jal trap; j __trapret` | 同上 |
+| 恢复过程不能破坏后续恢复所需信息 | 先 CSR 后通用寄存器，`t0` 只做 CSR 临时寄存器 | 4.2 代码 |
+| 时钟中断必须续订下一次事件 | `clock_set_next_event()` 放在定时器分支第一行 | `TIMER.final.log`：`ticks=200` |
+| `ticks` 每次加一，`TICK_NUM` 打印，`SHUTDOWN_AFTER` 关机 | `ticks++`、`ticks % 100`、`ticks >= 1000` | 日志中 `100 ticks` 出现 10 次 |
+| 断点/非法指令按指令长度推进 `epc` | `instruction_length()` 读低两位判断 2/4 字节 | `CONTEXT.final.log`、`ILLEGAL.final.log` |
+| 未列出的异常用 `print_trapframe(tf)` 兜底 | `default` 分支调用 `print_trapframe(tf)` | 日志中 `cause 0x00000014` 的完整现场 |
+| 不得修改函数签名与 `trap_dispatch` | 两个处理函数签名与骨架一致；`trap_dispatch` 逐字未改 | 文本比对 |
+
+---
 ## 小组分工
 
 我们按“代码所有权、运行所有权、报告所有权”拆开，避免三个人同时改同一份文件，也避免运行结论出现两套口径。
@@ -136,6 +176,9 @@ qemu-system-riscv64 -machine virt -nographic -bios default \
 Domain0 Next Address : 0x0000000000000000
 ```
 
+
+这段串口输出在 2026-11-03 用 `-device loader` 重新复现并留存：`logs/run/qemu-loader-failure-20261103.log`。
+
 内核根本没有执行。根因不是 Trap 代码，而是 QEMU 7.0 的 `fw_dynamic` 不认 `-device loader,file=bin/ucore.img,addr=0x80200000` 这条加载路径。我们把评分脚本改成：
 
 ```bash
@@ -197,6 +240,22 @@ Lab2 物理内存管理
 4. `sret`。
 
 `x0` 是硬连线零寄存器，不能恢复；写 `x0` 没有意义，读 trapframe 里的 `x0` 也不应该覆盖它。
+
+---
+
+### 3.4 指导书留下的两个思考点
+
+**(1) `local_intr_save(x)` 为什么用 `do { ... } while (0)` 包起来？**
+
+- 宏体不止一条语句：读 `sstatus.SIE`、必要时关中断、再给 `x` 赋值。如果直接展开成多条语句，写在 `if (cond) local_intr_save(flag); else ...` 里会破坏 `if/else` 的配对。
+- `do { ... } while (0)` 把整个宏变成一条语句，调用处照常写分号，行为和函数调用一致；`while (0)` 保证只执行一次，编译器会把循环优化掉。
+- 只用 `{ ... }` 裸块也不行：`if (c) MACRO; else` 里的分号会变成一条空语句，`else` 仍然会错配。
+
+**(2) stvec 在 1.10 增加 MODE 字段，如何保证后向兼容？**
+
+- 1.9.1 要求 `stvec` 是 4 字节对齐的基址，低两位必然为 0。
+- 1.10 把低两位解释为 MODE：`00` 是 Direct，`01` 是 Vectored。旧软件写入的地址低两位本来就是 `00`，在新硬件上自然解释为 Direct，行为不变。
+- 新软件只有在需要向量表时才写 `01`；旧硬件要求 4 字节对齐，本来就不会接受这种值。用“原本恒为 0 的位”扩展编码，既加了功能，又不破坏旧二进制。
 
 ---
 
@@ -273,6 +332,9 @@ Breakpoint at 0xffffffffc0201a04
 ```text
 Error: unknown CSR `sbadaddr'
 ```
+
+
+2026-11-03 我们用最小汇编文件重新复现了一次，输出留存为 `logs/build/binutils-sbadaddr-20261103.log`；修复后的完整构建见 `logs/build/build.log`。
 
 `SAVE_ALL` 里写的是 `csrr s3, sbadaddr`。`sbadaddr` 是旧工具链对 `stval` 的别名，新版 binutils 已经删掉了这个名字。指导书要求“不得修改 `SAVE_ALL`”，所以我们的修复不是改 `SAVE_ALL`，而是在文件级加一行数值别名：
 
@@ -394,14 +456,7 @@ Test 3 覆盖持续时钟：
 
 #### 设计目标
 
-指导书在 `init.c` 里留了一句：
-
-```c
-// LAB3: CAHLLENGE 1 If you try to do it, uncomment lab3_switch_test()
-// lab3_switch_test();
-```
-
-我们把它做成一个**真正的地址空间切换**，而不是只改 `sstatus.SPP` 跳一下：
+本次指导书、PPT 和代码骨架都没有给出固定的 Challenge 题目，`init.c` 里也没有预留挑战钩子。我们没有把它做成“只改 `sstatus.SPP` 跳一下”的演示，而是自行设计了**真正的地址空间切换**，并用 `#ifdef LAB3_CHALLENGE_SWITCH` 接入 `init.c`：
 
 1. 建一份独立的 Sv39 根页表 `user_root`，复制内核高半区（entry 511）和启动期恒等映射（entry 2）。
 2. 给 `user_root[0]` 建三级页表链 `L1 -> L0`，映射：
@@ -446,7 +501,7 @@ scause = 0xd   # load page fault
 
 ![Challenge 1：S → U → S](images/shot-L3-05-challenge.png)
 
-这张图来自 `report/logs/run/CHALLENGE.serial.log` 第 67–72 行。`a0=0x55` 是用户代码写进去的值，证明 U 模式确实执行了；`scause=0x8` 是 U-mode ecall；最后一行是恢复桩打印的。
+这张图来自 `report/logs/run/CHALLENGE.serial.log` 第 68–72 行。`a0=0x55` 是用户代码写进去的值，证明 U 模式确实执行了；`scause=0x8` 是 U-mode ecall；最后一行是恢复桩打印的。
 
 Challenge 只在 `-DLAB3_CHALLENGE_SWITCH` 下编译，默认 `make grade` 不包含它。最终默认评分仍是 100/100，说明扩展隔离成立。
 
@@ -466,6 +521,7 @@ Challenge 只在 `-DLAB3_CHALLENGE_SWITCH` 下编译，默认 `make grade` 不�
 ![官方 make grade 最终回归](images/shot-L3-01-grade.png)
 
 这张图来自 `report/logs/run/grade-final.log` 第 27、53、79、80 行。三条 PASS 和总分是 `grade.sh` 的原始输出。
+2026-11-03，我们对仓库里的当前源码做了一次 `make clean && make grade` 复跑，结果仍是 **100/100**，完整输出见 `logs/run/grade-recheck-20261103.log`；同一天 Challenge 也用 `-DLAB3_CHALLENGE_SWITCH` 复跑，见 `logs/run/CHALLENGE.recheck-20261103.log`。这两份日志说明提交到仓库的版本本身可复现，而不是只保留了某一次运行的截图。
 
 ### 5.2 我们实际检查的边界
 
@@ -635,8 +691,8 @@ void exception_handler(struct trapframe *tf);
 
 | 现象 | 根因 | 修复 | 回归 |
 |---|---|---|---|
-| `make grade` 0/100，OpenSBI 打印 `Next Address : 0` | QEMU 7.0 `fw_dynamic` 不认 `-device loader` | 改用 `-kernel bin/ucore.img` | 100/100 |
-| `unknown CSR sbadaddr` | 新版 binutils 删除旧别名 | `.equ sbadaddr, 0x143`，不改 `SAVE_ALL` | 编译通过 |
+| `make grade` 0/100，OpenSBI 打印 `Next Address : 0` | QEMU 7.0 `fw_dynamic` 不认 `-device loader` | 改用 `-kernel bin/ucore.img` | 100/100；失败现场 `logs/run/qemu-loader-failure-20261103.log` |
+| `unknown CSR sbadaddr` | 新版 binutils 删除旧别名 | `.equ sbadaddr, 0x143`，不改 `SAVE_ALL` | 编译通过；报错复现 `logs/build/binutils-sbadaddr-20261103.log` |
 | Challenge `scause=0xd` 循环 | `RESTORE_ALL` 先写 `sstatus`，提前清 `SUM` 后读不了用户栈上的 trapframe | 保持 `SUM` 到恢复完成；切内核栈后再清 | Challenge PASS |
 | 只出现一次 `100 ticks` | 定时器没有续订 | 定时器分支第一行 `clock_set_next_event()` | `ticks=200` |
 | 断点返回位置不对 | 把 `ebreak` 固定当 4 字节 | 按指令低两位判断 2/4 字节 | Test 1 PASS |
@@ -707,6 +763,10 @@ void exception_handler(struct trapframe *tf);
 | 证据 | 文件 |
 |---|---|
 | 官方最终评分 | `logs/run/grade-final.log` |
+| 2026-11-03 复跑评分 | `logs/run/grade-recheck-20261103.log` |
+| 2026-11-03 复跑 Challenge | `logs/run/CHALLENGE.recheck-20261103.log` |
+| QEMU `-device loader` 失败复现 | `logs/run/qemu-loader-failure-20261103.log` |
+| binutils `sbadaddr` 报错复现 | `logs/build/binutils-sbadaddr-20261103.log` |
 | Test 1 串口 | `logs/run/CONTEXT.final.log` |
 | Test 2 串口 | `logs/run/ILLEGAL.final.log` |
 | Test 3 串口 | `logs/run/TIMER.final.log` |
