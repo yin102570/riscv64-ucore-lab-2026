@@ -9,38 +9,93 @@
 | 运行环境 | WSL2 Ubuntu 22.04.5；riscv64-unknown-elf-gcc 16.1.0；QEMU 7.0.0（OpenSBI `fw_dynamic`）；riscv64-unknown-elf-gdb 19.0.50 |
 | 小组成员 | 2410665 殷佳仪、2410749 宋秋实、2412090 兰雨杉 |
 
-## 一、这一章到底在补什么
+## 一、实验目的与材料判定
 
-Lab1 让内核能启动，Lab2 让它能管物理页，但此时内核仍然是“聋的”：除零、断点、时钟到期，它一概不知道。中断和异常的本质是硬件强行改写 PC，把控制流交给内核。硬件只留下四条线索——`sepc`、`scause`、`stval`、`sstatus`——通用寄存器一个都不保存。
+### 1.1 本次实验要完成的闭环
 
-所以 Lab3 要补的不是“一个处理函数”，而是**硬件留下的半个现场**：把 32 个通用寄存器和 4 个 CSR 组成一个可返回的 `trapframe`，交给 C 处理，再原样装回去。两个功能模块分别对应这条链的两端：
+Lab1 建立启动与最小内核，Lab2 完成物理页管理；到 Lab3，内核还缺少对异步事件和同步异常的响应能力。指导书的核心不是缺页，而是 **Trap 闭环**：
 
-- `trapentry.S`：进入内核时建现场，返回前拆现场；
-- `trap.c`：判断这次陷入是中断还是异常，做该做的事，并保证返回后不会重复触发。
+```text
+异常/中断发生
+  -> 硬件保存 sepc/scause/sstatus/stval，跳到 stvec
+  -> __alltraps 用 SAVE_ALL 在栈上构造 trapframe
+  -> 以 trapframe* 调用 trap()
+  -> interrupt_handler() / exception_handler() 分类处理
+  -> __trapret 用 RESTORE_ALL 恢复现场
+  -> sret 回到被打断的指令
+```
 
-我们还核对了另一份 PPT：它讲缺页机制，和 docx、当前骨架要做的 Trap 闭环不是同一版实验。我们的范围判断很直接：以 docx、骨架和 `tools/grade.sh` 为准，不把 VMA/swap 硬塞进这一章；缺页留给后续虚拟内存实验。
+硬件只保存 PC 和少量 CSR，32 个通用寄存器不在硬件现场里。因此本章要补的是“半个现场”：把 32 个通用寄存器和 4 个 CSR 组织成可返回的 `trapframe`，交给 C 处理，再按同一布局装回去。对应的两个功能模块是：
 
-指导书的写法值得注意：它**没有给 `RESTORE_ALL` 的指令序列**，只给了布局、`x2` 特殊、调用约定、`sret` 四条约束。这不是漏写，而是把设计空间留给学生。照着伪代码抄一遍，只会得到“能跑但不知道为什么”的汇编；从 `SAVE_ALL` 反推，才会真正理解偏移、顺序和返回语义。
+1. `kern/trap/trapentry.S`：`RESTORE_ALL` 与 `__alltraps`；
+2. `kern/trap/trap.c`：`interrupt_handler()` 与 `exception_handler()`。
 
-## 二、环境先给了两个下马威
+### 1.2 材料版本与范围判定
 
-指导书配套的是旧版 QEMU 的 `fw_jump` 加载方式。我们本机是 QEMU 7.0.0 的 `fw_dynamic`，第一次跑 `make grade` 直接 0/100，串口里只有：
+我们先把两份材料对齐，避免把不同版本的实验混在一起：
+
+| 维度 | `lab3缺页机制.pptx` | `lab3指导书.docx` + 当前代码 |
+|---|---|---|
+| 主题 | 缺页异常、VMA、页换入换出 | RISC-V Trap 入口、上下文保存/恢复、时钟中断、非法指令、断点 |
+| 关键结构 | `vma_struct`、`mm_struct` | `struct trapframe`、`struct pushregs` |
+| 关键文件 | `vmm.c`、`swap.c`、`swap_fifo.c` | `trapentry.S`、`trap.c` |
+| 评分 | PPT 中的缺页流程 | `tools/grade.sh`：35 + 25 + 40 分 |
+
+我们的范围判断是：**以 docx、当前骨架和 `tools/grade.sh` 为准**。PPT 只作为“中断/异常在 OS 中处于什么位置”的背景；当前骨架没有 VMA、swap 和换页接口，强行实现缺页既无法进入评分路径，也会偏离本章的 Trap 主线。缺页留给后续虚拟内存实验。
+
+### 1.3 指导书留下的设计空间
+
+指导书没有给出 `RESTORE_ALL` 的完整指令序列，只给出四条约束：`trapframe` 布局、`x2(sp)` 的特殊处理、RISC-V 调用约定、`sret` 返回语义。这不是遗漏，而是要求学生从已有的 `SAVE_ALL` 反推恢复顺序。直接照抄一段“能跑”的汇编，无法解释偏移为什么这样排、`sp` 为什么必须最后恢复；从保存关系反推，才能把布局、顺序和返回语义对应起来。
+
+## 二、实验环境与可复现命令
+
+### 2.1 实测环境
+
+```text
+WSL2 Ubuntu 22.04.5
+riscv64-unknown-elf-gcc 16.1.0
+qemu-system-riscv64 7.0.0（OpenSBI fw_dynamic）
+riscv64-unknown-elf-gdb 19.0.50
+```
+
+`tools/grade.sh` 的三组用例分别设置 8s、8s、30s 超时；最终分数由脚本输出，不以手工观察代替。
+
+### 2.2 构建、运行与评分
+
+在 WSL 中进入 `lab3/code`：
+
+```bash
+make clean
+make                 # 生成 bin/kernel、bin/ucore.img
+make grade           # 官方三组用例，目标 100/100
+```
+
+Challenge 1 使用独立构建，不进入默认评分：
+
+```bash
+make clean
+make DEFS=-DLAB3_CHALLENGE_SWITCH
+timeout 15 qemu-system-riscv64 -machine virt -nographic -bios default \
+  -kernel bin/ucore.img
+```
+
+### 2.3 环境差异与修复
+
+指导书配套的是旧版 QEMU 的 `fw_jump` 加载方式，本机是 QEMU 7.0.0 的 `fw_dynamic`。第一次执行 `make grade` 得到 0/100，串口只有：
 
 ```text
 Domain0 Next Address      : 0x0000000000000000
 ```
 
-内核根本没被加载。原因不是 Trap 代码，而是 `fw_dynamic` 不读 `-device loader,file=...,addr=0x80200000`。改成 `-kernel bin/ucore.img` 后，同一份内核正常启动，OpenSBI 打印 `Next Address : 0x0000000080200000`。这个失败现场我们重新复现并留了日志（`logs/run/qemu-loader-failure-20261103.log`），避免以后把它误判成内核 bug。
+内核没有执行。根因不是 Trap 代码，而是 `fw_dynamic` 不读取 `-device loader,file=...,addr=0x80200000` 这条加载路径。评分脚本改用 `-kernel bin/ucore.img` 后，同一份内核正常启动，OpenSBI 打印 `Next Address : 0x0000000080200000`。失败现场保留在 `logs/run/qemu-loader-failure-20261103.log`，用于区分“加载失败”和“Trap 实现错误”。
 
-第二个坑来自工具链。`SAVE_ALL` 里写的是 `csrr s3, sbadaddr`，新版 binutils 已经删掉这个旧别名，编译直接报 `unknown CSR`。指导书要求不得修改 `SAVE_ALL`，所以修复放在文件头：
+第二个差异来自工具链。`SAVE_ALL` 使用 `csrr s3, sbadaddr`，新版 binutils 已删除这个旧别名，编译报 `unknown CSR`。指导书要求不得修改 `SAVE_ALL`，因此修复放在文件头：
 
 ```asm
 .equ sbadaddr, 0x143
 ```
 
-`0x143` 就是 `stval` 的 CSR 编号。汇编结果与旧工具链一致，`SAVE_ALL` 一个字没动。这个错误可以用一个三行汇编文件稳定复现，日志在 `logs/build/binutils-sbadaddr-20261103.log`。
-
-两件事都不属于“操作系统知识点”，但都属于交付的一部分。环境差异不写清楚，后来的人只会重复踩。
+`0x143` 是 `stval` 的 CSR 编号，汇编结果与旧工具链一致，`SAVE_ALL` 原文未改。该错误可用一个三行汇编文件稳定复现，日志在 `logs/build/binutils-sbadaddr-20261103.log`。这两项都不属于 Trap 算法本身，但会直接影响“代码能否进入被验证的路径”，因此单独记录。
 
 ## 三、Trap 闭环的设计
 
