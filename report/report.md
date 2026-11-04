@@ -294,7 +294,7 @@ scause = 0xd    # load page fault
 | 总分 | **100/100** | `logs/run/grade-final.log` |
 | Challenge 1 | PASS | `logs/run/CHALLENGE.serial.log` |
 
-2026-11-03 我们对提交树重新跑了一遍：`make clean && make grade` 仍是 100/100，Challenge 仍是 PASS（`logs/run/grade-recheck-20261103.log`、`logs/run/CHALLENGE.recheck-20261103.log`）。这一步是必要的——只保留某一次成功截图，无法证明仓库里的代码就是跑出那个结果的那份。
+2026-11-03 我们对提交树重新跑了一遍：`make clean && make grade` 仍是 100/100，Challenge 仍是 PASS（`logs/run/grade-recheck-20261103.log`、`logs/run/CHALLENGE.recheck-20261103.log`）。2026-11-04 合入远端的中断保护与 Challenge 栈大小修正后，又在最新提交上重跑：默认构建 100/100，Challenge PASS（`logs/run/grade-20261104.log`、`logs/run/CHALLENGE-20261104.log`）。这一步是必要的——只保留某一次成功截图，无法证明仓库里的代码就是跑出那个结果的那份。
 
 ![官方评分总分](images/shot-L3-01-grade.png)
 
