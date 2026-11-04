@@ -1,6 +1,6 @@
 # Lab3 Prompt 与 Spec 记录
 
-本文件是 `report.md` 第六节的展开版，记录我们在本次实验中**实际使用**的 spec、prompt、审查清单和迭代过程。不是事后补写的模板，三段 prompt 都能直接复用到同类 trap 实验里。
+本文件是 `report.md` 第八节的展开版，记录我们在本次实验中**实际使用**的 spec、prompt、审查清单和迭代过程。不是事后补写的模板，三段 prompt 都能直接复用到同类 trap 实验里。
 
 ## 0. 使用约定
 
@@ -212,9 +212,12 @@ SUM 必须保持到 trapframe 从用户栈读完之后；恢复桩要先切到�
 cd code
 make grade                     # 官方三项，期望 100/100
 make clean && make             # 默认构建
-make LAB3_CHALLENGE=1 && make qemu   # Challenge 1，串口应打印 PASS
+make clean
+make DEFS=-DLAB3_CHALLENGE_SWITCH
+timeout 15 qemu-system-riscv64 -machine virt -nographic -bios default \
+  -kernel bin/ucore.img        # Challenge 1，串口应打印 PASS
 ```
 
 对应的原始日志在 `report/logs/`，截图在 `report/images/`，静态反汇编在 `report/logs/static/`。
 
-2026-11-03 我们对仓库里的当前源码重新跑过一轮：`make clean && make grade` 仍为 100/100（`logs/run/grade-recheck-20261103.log`），Challenge 仍为 PASS（`logs/run/CHALLENGE.recheck-20261103.log`）。因此本文件里的验收标准不是纸面约定，而是当前分支可复现的结果。
+2026-11-03 我们对仓库里的当前源码重新跑过一轮：`make clean && make grade` 仍为 100/100（`logs/run/grade-recheck-20261103.log`），Challenge 仍为 PASS（`logs/run/CHALLENGE.recheck-20261103.log`）。2026-11-04 合入远端的中断保护与 Challenge 栈大小修正后，又在最新提交上复跑：默认构建 100/100，Challenge PASS（`logs/run/grade-20261104.log`、`logs/run/CHALLENGE-20261104.log`）。因此本文件里的验收标准不是纸面约定，而是当前分支可复现的结果。

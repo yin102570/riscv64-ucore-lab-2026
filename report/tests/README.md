@@ -12,8 +12,8 @@
 | T4 | 软件中断分支 | 触发 S 模式软件中断 | 打印 `Supervisor software interrupt` | `logs/run/TIMER.final.log` |
 | T5 | 未知中断分支 | 触发未登记的 cause | 打印 `Unknown interrupt: cause 15`，不 panic | `logs/run/TIMER.final.log` |
 | T6 | 未知异常分支 | 触发未登记异常 | 打印完整 trapframe（含 `cause 0x00000014`） | `logs/run/ILLEGAL.final.log` |
-| T7 | 特权级往返 | `make DEFS=-DLAB3_CHALLENGE_SWITCH` | S → U → S 完整往返，`scause=0x8`、`a0=0x55` | `logs/run/CHALLENGE.serial.log` |
-| T8 | 默认构建零影响 | 不打开宏直接 `make grade` | 仍为 100/100 | `logs/run/grade-final.log` |
+| T7 | 特权级往返 | `make DEFS=-DLAB3_CHALLENGE_SWITCH` | S → U → S 完整往返，`scause=0x8`、`a0=0x55` | `logs/run/CHALLENGE-20261104.log` |
+| T8 | 默认构建零影响 | 不打开宏直接 `make grade` | 仍为 100/100 | `logs/run/grade-20261104.log` |
 
 ## 演示顺序
 
@@ -21,7 +21,7 @@
 2. 打开 `logs/run/CONTEXT.final.log`：指到 `Breakpoint at 0xffffffffc0201a04` 与寄存器比对段。
 3. 打开 `logs/run/ILLEGAL.final.log`：指到 `Illegal instruction at 0xffffffffc02019b6`，说明 2 字节推进。
 4. 打开 `logs/run/TIMER.final.log`：指到 `ticks=200`、`Supervisor software interrupt`、`Unknown interrupt: cause 15`。
-5. 最后跑 Challenge，展示 `scause=0x8` 与 `satp restored`。
+5. 最后跑 Challenge，展示 `scause=0x8` 与 `satp restored`（`logs/run/CHALLENGE-20261104.log`）。
 
 ## 判读方法
 

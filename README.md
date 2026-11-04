@@ -67,11 +67,12 @@ Total Score: 100/100
 
 Challenge 1 单独构建实测 `PASS`，默认评分路径不受影响。
 
-2026-11-03 对当前源码复跑：`make clean && make grade` 仍为 **100/100**，Challenge 仍为 **PASS**。原始输出见 `report/logs/run/grade-recheck-20261103.log` 与 `report/logs/run/CHALLENGE.recheck-20261103.log`。
+2026-11-04 合入远端修复后的最新源码复跑：`make clean && make grade` 为 **100/100**，Challenge 为 **PASS**。原始输出见 `report/logs/run/grade-20261104.log` 与 `report/logs/run/CHALLENGE-20261104.log`；2026-11-03 的历史回归见 `report/logs/run/grade-recheck-20261103.log` 与 `report/logs/run/CHALLENGE.recheck-20261103.log`。
 
 ## 证据入口
 
 - 官方评分原始输出：`report/logs/run/grade-final.log`
+- 最新回归：`report/logs/run/grade-20261104.log`、`report/logs/run/CHALLENGE-20261104.log`
 - 2026-11-03 复跑：`report/logs/run/grade-recheck-20261103.log`
 - 环境坑复现：`report/logs/run/qemu-loader-failure-20261103.log`、`report/logs/build/binutils-sbadaddr-20261103.log`
 - 断点现场恢复：`report/logs/run/CONTEXT.final.log`
