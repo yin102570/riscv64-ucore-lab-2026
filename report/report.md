@@ -1,281 +1,93 @@
-# 操作系统实验报告 · 实验 3：断，都可以断
+# 实验 3：中断、异常与特权级往返
 
-本次实验我们围绕 RISC-V 的 Trap 机制，把 ucore 从“能够产生 Trap”推进到“能够保存现场、进入 C 处理函数、处理中断与异常、恢复现场并返回原执行流”。最终交付的默认构建在 `make grade` 中拿到 **100/100**：Trap 入口与断点返回 35/35、非法指令 EPC 推进 25/25、持续时钟中断 40/40。Challenge 1 的用户态/内核态往返演示也单独跑通，输出 `PASS: S -> U -> S round trip completed`，且不影响默认评分路径。
-
-这份报告以我们实际跑出来的日志为准。正文里出现的地址、分值、tick 数都来自 `report/logs/` 下的原始输出；没有跑到的内容不写成“已完成”，推断出来的结论会明确标注。
-
-## 实验基本信息
+## 基本信息
 
 | 项目 | 内容 |
 |---|---|
-| 实验名称 | 实验 3 · 中断与异常（ucore / riscv64 版） |
-| 指导材料 | `lab3指导书.docx`（正式要求）+ `lab3缺页机制.pptx`（旧版背景材料） |
-| 代码基线 | `os源码/lab3/lab3_new`，工作副本为 `lab3/code` |
-| 交付代码 | `lab3/code/`：`kern/`、`libs/`、`tools/`、`Makefile` |
-| 运行环境 | Windows 主机 + WSL2 Ubuntu 22.04 |
-| 交叉工具链 | `riscv64-unknown-elf-gcc 16.1.0` |
-| 模拟器 | `qemu-system-riscv64 7.0.0`，OpenSBI `fw_dynamic` |
-| 调试器 | `riscv64-unknown-elf-gdb 19.0.50 (20260915-git)` |
-| 小组成员 | 2410665 殷佳仪（组长）· 2410749 宋秋实 · 2412090 兰雨杉 |
-| 报告与证据 | `report/report.md`、`report/prompt.md`、`report/logs/`、`report/images/` |
+| 实验名称 | 实验 3 · 中断与异常（ucore / RISC-V 64） |
+| 交付代码 | `code/`：`kern/`、`libs/`、`tools/`、`Makefile` |
+| 运行环境 | WSL2 Ubuntu 22.04.5；riscv64-unknown-elf-gcc 16.1.0；QEMU 7.0.0（OpenSBI `fw_dynamic`）；riscv64-unknown-elf-gdb 19.0.50 |
+| 小组成员 | 2410665 殷佳仪、2410749 宋秋实、2412090 兰雨杉 |
 
-### 本报告的写法
+## 一、这一章到底在补什么
 
-1. “实测”与“推断”分开写。实测数字给出日志文件，按源码逻辑推出来的结论明确写“推断”。
-2. 截图全部由真实终端输出切片渲染，未手打、未改写；每张图下面注明来源文件和行号。
-3. 指导书配套的是旧版 QEMU 的 `fw_jump` 加载方式，我们本机是 QEMU 7.0.0 的 `fw_dynamic`。两者行为不同的地方单独说明。
-4. 没有做的内容不补写。PPT 里的缺页/换页没有出现在本次代码骨架和评分脚本中，我们只把它作为背景知识，不冒充本次实验成果。
+Lab1 让内核能启动，Lab2 让它能管物理页，但此时内核仍然是“聋的”：除零、断点、时钟到期，它一概不知道。中断和异常的本质是硬件强行改写 PC，把控制流交给内核。硬件只留下四条线索——`sepc`、`scause`、`stval`、`sstatus`——通用寄存器一个都不保存。
 
----
+所以 Lab3 要补的不是“一个处理函数”，而是**硬件留下的半个现场**：把 32 个通用寄存器和 4 个 CSR 组成一个可返回的 `trapframe`，交给 C 处理，再原样装回去。两个功能模块分别对应这条链的两端：
 
-## 目录
+- `trapentry.S`：进入内核时建现场，返回前拆现场；
+- `trap.c`：判断这次陷入是中断还是异常，做该做的事，并保证返回后不会重复触发。
 
-- [实验基本信息](#实验基本信息)
-- [零、要求对照](#零要求对照)
-- [小组分工](#小组分工)
-- [一、实验目的与材料判定](#一实验目的与材料判定)
-- [二、实验环境与可复现命令](#二实验环境与可复现命令)
-- [三、实验整体逻辑](#三实验整体逻辑)
-- [四、实验内容与实现](#四实验内容与实现)
-- [五、测试与验证](#五测试与验证)
-- [六、Prompt、spec 与 AI 协作](#六promptspec-与-ai-协作)
-- [七、重要知识点与 OS 原理对照](#七重要知识点与-os-原理对照)
-- [八、OS 原理中重要但本实验未覆盖的内容](#八os-原理中重要但本实验未覆盖的内容)
-- [九、总结与收获](#九总结与收获)
-- [附录：证据索引](#附录证据索引)
+指导书的写法值得注意：它**没有给 `RESTORE_ALL` 的指令序列**，只给了布局、`x2` 特殊、调用约定、`sret` 四条约束。这不是漏写，而是把设计空间留给学生。照着伪代码抄一遍，只会得到“能跑但不知道为什么”的汇编；从 `SAVE_ALL` 反推，才会真正理解偏移、顺序和返回语义。
 
----
+## 二、环境先给了两个下马威
 
-## 零、要求对照
-
-### 0.1 课程报告要求（7 条）
-
-| 课程要求 | 本报告位置 | 说明 |
-|---|---|---|
-| 1. 用 Markdown 完成，以文本说明为主 | 全篇 | 正文为 Markdown；截图只作为证据，不替代文字说明 |
-| 2. 整体逻辑与实现顺序 | 三 | 从 Lab2 内存管理到 Trap 闭环的逐层依赖 |
-| 3. 每个功能的核心函数/模块理解 | 四 | 模块 A、模块 B、Challenge 逐段拆解 |
-| 4. 每个练习的 spec 与 prompt | 六；全文见 `prompt.md` | 两个功能模块 + Challenge 各自都有 spec 与原始 prompt |
-| 5. AI 生成代码中的 bug 与解决 | 6.7；`prompt.md` 第 9 节 | 按“现象—根因—修复—回归”记录 6 条 |
-| 6. 重要知识点与 OS 原理对照 | 七 | 12 条逐项对照含义、关系与差异 |
-| 7. OS 原理重要但本实验未覆盖 | 八 | 9 条，明确本实验边界 |
-
-### 0.2 指导书功能模块对照
-
-| 指导书要求 | 文件与函数 | 实现说明 | 通过证据 |
-|---|---|---|---|
-| 功能模块一 | `kern/trap/trapentry.S`：`RESTORE_ALL`、`__alltraps` | 4.2 | Test 1 `PASS (35/35)`；`logs/static/trapentry.disasm.txt` |
-| 功能模块二 | `kern/trap/trap.c`：`interrupt_handler()`、`exception_handler()` | 4.3 | Test 2 `PASS (25/25)`、Test 3 `PASS (40/40)` |
-| 扩展（自定 Challenge） | `kern/init/lab3_switch.c` | 4.4 | `logs/run/CHALLENGE.serial.log`：`PASS: S -> U -> S` |
-
-说明：指导书没有给出固定的 Challenge 题目，骨架里也没有预留钩子；我们按本章主线自定了“特权级往返”这一扩展，并用编译宏隔离。
-
-### 0.3 指导书注意事项逐条落实
-
-| 指导书注意事项 | 我们的做法 | 核对方式 |
-|---|---|---|
-| 不得修改 `SAVE_ALL`、`struct trapframe`、`trap()` 签名 | `SAVE_ALL` 与骨架逐字一致；`trap.h` 未改；`trap()` 签名未改 | 文本比对 + `git diff` |
-| `x2(sp)` 的处理与其他寄存器不同 | `sp` 最后从 `2*REGBYTES(sp)` 恢复 | `trapentry.disasm.txt` |
-| `__alltraps` 按调用约定传 `trapframe *` | `mv a0, sp; jal trap; j __trapret` | 同上 |
-| 恢复过程不能破坏后续恢复所需信息 | 先 CSR 后通用寄存器，`t0` 只做 CSR 临时寄存器 | 4.2 代码 |
-| 时钟中断必须续订下一次事件 | `clock_set_next_event()` 放在定时器分支第一行 | `TIMER.final.log`：`ticks=200` |
-| `ticks` 每次加一，`TICK_NUM` 打印，`SHUTDOWN_AFTER` 关机 | `ticks++`、`ticks % 100`、`ticks >= 1000` | 日志中 `100 ticks` 出现 10 次 |
-| 断点/非法指令按指令长度推进 `epc` | `instruction_length()` 读低两位判断 2/4 字节 | `CONTEXT.final.log`、`ILLEGAL.final.log` |
-| 未列出的异常用 `print_trapframe(tf)` 兜底 | `default` 分支调用 `print_trapframe(tf)` | 日志中 `cause 0x00000014` 的完整现场 |
-| 不得修改函数签名与 `trap_dispatch` | 两个处理函数签名与骨架一致；`trap_dispatch` 逐字未改 | 文本比对 |
-
----
-## 小组分工
-
-我们按“代码所有权、运行所有权、报告所有权”拆开，避免三个人同时改同一份文件，也避免运行结论出现两套口径。
-
-| 成员 | 负责内容 | 交付边界 |
-|---|---|---|
-| 2410665 殷佳仪（组长） | 总体架构、模块 A `trapentry.S`、报告统稿、最终交付审核 | 不承担 `make`/QEMU/GDB/`make grade` 等运行任务；对模块 A 的寄存器顺序、`sp` 恢复和 `sret` 语义负责 |
-| 2410749 宋秋实 | 模块 B `trap.c`、中断/异常分类、评分字符串对齐；**全组唯一运行与验证负责人** | 统一执行 `make`、QEMU、GDB、`objdump`、`make grade`，保存三组官方用例与 Challenge 的原始日志 |
-| 2412090 兰雨杉 | Lab2 依赖移植、QEMU 7.0 启动适配、Challenge 1、仓库整理 | 保证默认评分路径不受 Challenge 影响；Challenge 只通过 `-DLAB3_CHALLENGE_SWITCH` 打开 |
-
-一句话：**殷佳仪不做运行，宋秋实统一跑，兰雨杉保证扩展隔离。** 报告里所有运行数字都来自宋秋实这条统一验证链。
-
----
-
-## 一、实验目的与材料判定
-
-### 1.1 本次实验到底做什么
-
-指导书的标题是“断，都可以断”，核心不是缺页，而是 **Trap 闭环**：
+指导书配套的是旧版 QEMU 的 `fw_jump` 加载方式。我们本机是 QEMU 7.0.0 的 `fw_dynamic`，第一次跑 `make grade` 直接 0/100，串口里只有：
 
 ```text
-异常/中断发生
-  -> 硬件保存 sepc/scause/sstatus，跳到 stvec
-  -> __alltraps 用 SAVE_ALL 在栈上构造 trapframe
-  -> 以 trapframe* 调用 trap()
-  -> interrupt_handler() / exception_handler() 分类处理
-  -> __trapret 用 RESTORE_ALL 恢复现场
-  -> sret 回到被打断的指令
+Domain0 Next Address      : 0x0000000000000000
 ```
 
-必须实现的两个功能模块是：
+内核根本没被加载。原因不是 Trap 代码，而是 `fw_dynamic` 不读 `-device loader,file=...,addr=0x80200000`。改成 `-kernel bin/ucore.img` 后，同一份内核正常启动，OpenSBI 打印 `Next Address : 0x0000000080200000`。这个失败现场我们重新复现并留了日志（`logs/run/qemu-loader-failure-20261103.log`），避免以后把它误判成内核 bug。
 
-1. `kern/trap/trapentry.S`：`RESTORE_ALL` 与 `__alltraps`。
-2. `kern/trap/trap.c`：`interrupt_handler()` 与 `exception_handler()`。
+第二个坑来自工具链。`SAVE_ALL` 里写的是 `csrr s3, sbadaddr`，新版 binutils 已经删掉这个旧别名，编译直接报 `unknown CSR`。指导书要求不得修改 `SAVE_ALL`，所以修复放在文件头：
 
-### 1.2 PPT 与 docx 不是同一版实验
+```asm
+.equ sbadaddr, 0x143
+```
 
-我们先把两份材料对齐，避免三个人做错方向：
+`0x143` 就是 `stval` 的 CSR 编号。汇编结果与旧工具链一致，`SAVE_ALL` 一个字没动。这个错误可以用一个三行汇编文件稳定复现，日志在 `logs/build/binutils-sbadaddr-20261103.log`。
 
-| 维度 | `lab3缺页机制.pptx` | `lab3指导书.docx` + 当前代码 |
+两件事都不属于“操作系统知识点”，但都属于交付的一部分。环境差异不写清楚，后来的人只会重复踩。
+
+## 三、Trap 闭环的设计
+
+### 3.1 硬件做什么，软件做什么
+
+| 阶段 | 执行者 | 动作 |
 |---|---|---|
-| 主题 | 缺页异常、VMA、页换入换出 | RISC-V Trap 入口、上下文保存/恢复、时钟中断、非法指令、断点 |
-| 关键结构 | `vma_struct`、`mm_struct` | `struct trapframe`、`struct pushregs` |
-| 关键文件 | `vmm.c`、`swap.c`、`swap_fifo.c` | `trapentry.S`、`trap.c` |
-| 评分 | PPT 中的缺页流程 | `tools/grade.sh`：35 + 25 + 40 分 |
+| 陷入 | 硬件 | `sepc` 记当前 PC；`scause` 记原因；`stval` 记附加信息；`SPIE←SIE`、`SIE←0`、`SPP←当前特权级`；PC←`stvec` |
+| 建现场 | `SAVE_ALL` | 在当前栈顶压出 36 个 `uintptr_t` |
+| 分发 | `trap()` | 用 `scause` 最高位区分中断/异常 |
+| 处理 | 两个 handler | 续订时钟、推进 `epc`、打印或关机 |
+| 拆现场 | `RESTORE_ALL` | 先 CSR，后通用寄存器，`sp` 最后 |
+| 返回 | `sret` | PC←`sepc`；特权级←`SPP`；`SIE←SPIE` |
 
-我们的处理是：**以 docx、当前代码骨架和 `grade.sh` 为准**。PPT 只作为“中断/异常在 OS 中处于什么位置”的背景。当前骨架没有 VMA、swap、页表换入换出接口，如果硬做缺页，只会得到一套无法被评分脚本验证的代码；这不是本次实验的要求。
+这张表是我们理解本章的主干。后面所有 bug 都能落回某一行：`sp` 提前恢复是“拆现场”错了，`epc` 不推进是“处理”错了，`sret` 前 `SPP` 不对是“返回”错了。
 
----
+### 3.2 36 个槽位是硬契约
 
-## 二、实验环境与可复现命令
-
-### 2.1 实测环境
-
-```text
-WSL2 Ubuntu 22.04
-riscv64-unknown-elf-gcc (g6afcc4f6d) 16.1.0
-qemu-system-riscv64 7.0.0
-OpenSBI fw_dynamic
-```
-
-`grade.sh` 的三组用例分别用 8s、8s、30s 超时运行；最终总分由 `tools/grade.sh` 输出。
-
-### 2.2 构建、运行、评分
-
-在 WSL 中进入 `lab3/code`：
-
-```bash
-make clean
-make                 # 生成 bin/kernel、bin/ucore.img
-make grade           # 官方三组用例，目标 100/100
-```
-
-Challenge 1 是独立构建，不进入默认评分：
-
-```bash
-make clean
-make DEFS=-DLAB3_CHALLENGE_SWITCH
-qemu-system-riscv64 -machine virt -nographic -bios default \
-  -kernel bin/ucore.img -serial file:challenge.log \
-  -monitor none -no-reboot
-```
-
-### 2.3 一个真实的环境坑：QEMU 7.0 的 `-kernel`
-
-第一次跑 `make grade` 得到 0/100，串口里 OpenSBI 打印：
-
-```text
-Domain0 Next Address : 0x0000000000000000
-```
-
-
-这段串口输出在 2026-11-03 用 `-device loader` 重新复现并留存：`logs/run/qemu-loader-failure-20261103.log`。
-
-内核根本没有执行。根因不是 Trap 代码，而是 QEMU 7.0 的 `fw_dynamic` 不认 `-device loader,file=bin/ucore.img,addr=0x80200000` 这条加载路径。我们把评分脚本改成：
-
-```bash
-qemu-system-riscv64 -machine virt -nographic -bios default \
-  -kernel bin/ucore.img ...
-```
-
-之后 OpenSBI 打印 `Domain0 Next Address : 0x0000000080200000`，内核正常启动。这个修复只改变加载方式，没有改评分用例、分值和匹配字符串。
-
----
-
-## 三、实验整体逻辑
-
-### 3.1 本章的逻辑主线
-
-本章不是孤立地“写两个函数”，而是沿着一条自底向上的链：
-
-```text
-Lab2 物理内存管理
-  -> 内核能分配页、能建立启动页表
-  -> 设置 stvec，让 Trap 有入口
-  -> SAVE_ALL 保存现场
-  -> RESTORE_ALL 恢复现场
-  -> __alltraps 把 trapframe* 传给 C
-  -> trap_dispatch 分流中断/异常
-  -> 定时器续订、异常 EPC 推进
-  -> sret 返回原执行流
-```
-
-这条链里任何一环断了，后面的现象都会“看起来像别的地方错了”。例如：
-
-- `stvec` 没设对：第一次 Trap 就跳飞。
-- `RESTORE_ALL` 的 `sp` 提前恢复：后面的 `ld` 全部读错位置。
-- 定时器不续订：只看到一次 `100 ticks`。
-- `epc` 不推进：断点/非法指令会无限重复。
-- `sstatus.SPP` 不对：`sret` 回到错误的特权级。
-
-### 3.2 Trapframe 的布局契约
-
-`struct trapframe` 在 64 位下是 36 个 `uintptr_t`，共 288 字节（`0x120`）：
+`struct trapframe` 在 64 位下是 36 个 `uintptr_t`，共 288 字节：
 
 | 偏移 | 内容 |
 |---:|---|
-| `0x000` – `0x0F8` | `x0` – `x31`，共 32 个通用寄存器 |
+| `0x000`–`0x0F8` | `x0`–`x31` |
 | `0x100` | `sstatus` |
 | `0x108` | `sepc` |
-| `0x110` | `badvaddr`（`stval`） |
+| `0x110` | `stval`（`badvaddr`） |
 | `0x118` | `scause` |
 
-`SAVE_ALL` 先 `csrw sscratch, sp`，再把 `sp` 减 `0x120`，然后按这个布局写入。`x2(sp)` 不在通用寄存器循环里直接存，而是最后从 `sscratch` 取回原始 `sp` 再写到 `2*REGBYTES(sp)`。这就是 `RESTORE_ALL` 不能“所有寄存器一视同仁”的原因。
+`SAVE_ALL` 用 `STORE xN, N*REGBYTES(sp)` 写这份布局，`RESTORE_ALL` 就必须用同样的偏移读回来。这里没有“大约对齐”的余地：错一个槽，返回后就是一个错误的寄存器值，而且往往要到很远的地方才炸。
 
-### 3.3 为什么 `sp` 必须最后恢复
+### 3.3 三条硬约束，和一条容易照搬错的写法
 
-`RESTORE_ALL` 的每一条 `ld` 都要用当前 `sp` 作为 trapframe 基址。如果先恢复 `sp`，后面的 `ld` 就会从“原来的栈指针”附近读数据，而不是从 trapframe 读。正确顺序是：
+1. **`sp` 必须最后恢复**。前面的每一条 `ld` 都要用当前 `sp` 当基址；先恢复 `sp`，后面的加载就全读到原栈上去了。
+2. **用 `t0` 写 CSR 必须发生在恢复 `x5(t0)` 之前**。`sstatus`、`sepc` 只能用 `t0` 做临时寄存器；一旦先把 `x5(t0)` 从 frame 恢复，就再没有空闲寄存器可用了。
+3. **`x0` 不恢复**。它是硬连线零，写它无效；读 frame 里的 `x0` 也没有意义。
 
-1. 先用 `t0` 恢复 `sstatus`、`sepc`；
-2. 恢复 `x1`、`x3`–`x31`；
-3. 最后 `ld sp, 2*REGBYTES(sp)`；
-4. `sret`。
+还有一条不写在指导书里、但很容易踩的：**不能用 `sscratch` 恢复 `sp`**。`SAVE_ALL` 开头先 `csrw sscratch, sp` 暂存旧栈指针，末尾的 `csrrw s0, sscratch, x0` 再把它换进 `s0`，同时把 `sscratch` 清零。等到 `RESTORE_ALL` 执行时，`sscratch` 已经是 0，不是旧栈指针。我们一开始想过“用 `sscratch` 取回 `sp` 更优雅”，核对 `SAVE_ALL` 后放弃——这也是本章最典型的一处“不能凭直觉写汇编”。
 
-`x0` 是硬连线零寄存器，不能恢复；写 `x0` 没有意义，读 trapframe 里的 `x0` 也不应该覆盖它。
+### 3.4 指导书里两个“看起来无关”的问题
 
----
+`local_intr_save(x)` 为什么写成 `do { ... } while (0)`？如果宏直接展开成 `{ ... }`，调用处写 `if (c) local_intr_save(flag); else ...` 时，`}` 后的分号会变成一条空语句，`else` 随即悬空。`do { ... } while (0)` 把宏变成语法上的一条语句，调用者照常写分号；`while (0)` 保证循环体只执行一次，不是运行时轮询。当前宏体只有一条赋值，裸花括号也能编译；但宏一旦增加语句，问题就会暴露。框架这样写，是在防守调用点的语法边界。
 
-### 3.4 指导书留下的两个思考点
+`stvec` 的 MODE 字段为什么能向后兼容？RISC-V 1.9.1 要求 `stvec.BASE` 四字节对齐，低两位本来就是 `00`；1.10 把这两位解释为 MODE，`00` 是 Direct，`01` 才是 Vectored。旧内核写 `stvec` 时低两位必然为 0，所以升级后自然被解释成 Direct，行为不变。`__alltraps` 前的 `.align(2)` 也是这个契约的一部分：入口地址对齐，MODE 字段才不会被地址本身污染。
 
-**(1) `local_intr_save(x)` 为什么用 `do { ... } while (0)` 包起来？**
+## 四、模块一：`RESTORE_ALL` 与 `__alltraps`
 
-- 宏体不止一条语句：读 `sstatus.SIE`、必要时关中断、再给 `x` 赋值。如果直接展开成多条语句，写在 `if (cond) local_intr_save(flag); else ...` 里会破坏 `if/else` 的配对。
-- `do { ... } while (0)` 把整个宏变成一条语句，调用处照常写分号，行为和函数调用一致；`while (0)` 保证只执行一次，编译器会把循环优化掉。
-- 只用 `{ ... }` 裸块也不行：`if (c) MACRO; else` 里的分号会变成一条空语句，`else` 仍然会错配。
+### 4.1 实现
 
-**(2) stvec 在 1.10 增加 MODE 字段，如何保证后向兼容？**
-
-- 1.9.1 要求 `stvec` 是 4 字节对齐的基址，低两位必然为 0。
-- 1.10 把低两位解释为 MODE：`00` 是 Direct，`01` 是 Vectored。旧软件写入的地址低两位本来就是 `00`，在新硬件上自然解释为 Direct，行为不变。
-- 新软件只有在需要向量表时才写 `01`；旧硬件要求 4 字节对齐，本来就不会接受这种值。用“原本恒为 0 的位”扩展编码，既加了功能，又不破坏旧二进制。
-
----
-
-## 四、实验内容与实现
-
-### 4.1 功能模块零：Lab2 依赖移植
-
-Lab3 骨架本身不带完整的 Lab2 内存管理。我们做了三件事：
-
-1. 把 Lab2 的 `best_fit_pmm.c` 移植到 `kern/mm/`，保留 `free_area`、`nr_free` 和四个管理函数。
-2. 在 `pmm.c` 中补回 `page_init()`：用 DTB 探测物理内存，建立 `pages[]`，把内核镜像和页描述符数组占用的页保留，再把剩余连续空闲页交给 `init_memmap()`。
-3. 在 `entry.S` 中保留启动期低地址恒等映射。QEMU 7.0 在执行 `csrw satp` 后，紧接着的取指仍然是低地址 PC；只有高半区映射时会在第二条指令就 instruction page fault。项 2 的低 1 GiB 恒等映射和项 511 的高半区映射一起，保证内核能活到 `kern_init()`。
-
-这一部分不是本次报告的主角，但它是 Trap 能跑起来的前提：没有 `pmm_init()`，`page_init()` 走不到，后面的 `idt_init()`、`clock_init()` 都无从谈起。
-
-### 4.2 模块 A：`RESTORE_ALL` 与 `__alltraps`（负责人：2410665 殷佳仪）
-
-#### 实现
-
-`RESTORE_ALL` 的关键代码如下（节选，完整代码在 `lab3/code/kern/trap/trapentry.S`）：
+我们只新增了 `RESTORE_ALL` 和 `__alltraps` 的传参、跳转；`SAVE_ALL`、`struct trapframe` 和 `trap()` 的签名均未改动。`RESTORE_ALL` 按“先 CSR、再通用寄存器、最后 `sp`”展开：
 
 ```asm
 .macro RESTORE_ALL
@@ -290,130 +102,87 @@ Lab3 骨架本身不带完整的 Lab2 内存管理。我们做了三件事：
     ld x31, 31*REGBYTES(sp)
     ld sp, 2*REGBYTES(sp)
 .endm
+```
 
+`__alltraps` 只做三件事：保存、传参、跳到统一返回路径。
+
+```asm
 __alltraps:
     SAVE_ALL
     mv a0, sp
     jal trap
     j __trapret
-
-__trapret:
-    RESTORE_ALL
-    sret
 ```
 
-`__alltraps` 只做三件事：保存现场、把当前 `sp` 作为 `trapframe *` 传给 `trap()`、返回后走统一的 `__trapret`。它不直接处理任何中断/异常，也不修改 `trap()` 的签名。
+`mv a0, sp` 是 RISC-V 调用约定里“第一个参数”的位置。此时 `sp` 正指向刚建好的 `trapframe`，所以 C 层拿到的 `struct trapframe *tf` 就是这份现场。`jal trap` 之后不写 `ret`，而是跳到 `__trapret`，保证所有返回路径都走同一套恢复逻辑。
 
-#### 我们是怎么验证的
+![__alltraps 与 SAVE_ALL 的反汇编](images/shot-L3-06-trapentry-disasm.png)
 
-官方 Test 1 会检查大量通用寄存器是否原样恢复，并在断点异常后继续执行。最终日志：
+图中前半段是 `SAVE_ALL`：31 条 `sd` 直接覆盖 `x0`、`x1`、`x3`–`x31`，被跳过的 `x2` 由后面的 `sd s0,16(sp)` 补上；随后四条 `csrr` 取 CSR，最后四个 `sd` 把它们写进 256–280 字节的槽位。偏移和结构体完全对得上。
+
+### 4.2 验证
+
+官方 Test 1 会构造一次断点，逐个比对寄存器，再检查返回地址：
 
 ```text
 Breakpoint at 0xffffffffc0201a04
 [Test 1] Trap entry and breakpoint return: PASS (35/35)
 ```
 
-![Test 1：Trap 入口、寄存器恢复与断点返回](images/shot-L3-02-context.png)
+反汇编里 `__trapret` 返回前的最后两条有效指令是：
 
-这张图来自 `report/logs/run/CONTEXT.final.log` 第 67–72 行。断点地址是真实运行地址；`PASS (35/35)` 是评分脚本自己打印的，不是我们手写的。
+    ffffffffc0200fda:	6142                	ld	sp,16(sp)
+    ffffffffc0200fdc:	10200073          	sret
 
-#### 静态证据
+前面所有 `ld` 都以旧 `sp` 为基址；`sp` 直到最后才换回用户/内核栈，然后才 `sret`。这条证据比“代码看起来对”有用：它证明汇编器真的把 `sp` 放在了最后（`logs/static/trapentry.disasm.txt`）。
 
-`objdump -d bin/kernel` 可以看到 `RESTORE_ALL` 的实际指令序列，最后一条是 `ld sp,16(sp)`，紧接着 `sret`：
+![Test 1：断点陷入与现场恢复](images/shot-L3-02-context.png)
 
-![trapentry 反汇编](images/shot-L3-06-trapentry-disasm.png)
+上图是 Test 1 的完整输出：断点地址、35 项检查与返回结果在同一屏内。
 
-这张图来自 `report/logs/static/trapentry.disasm.txt`。它证明“`sp` 最后恢复”不是报告里的口头描述，而是编译结果。
+### 4.3 三个设计取舍
 
-#### 新版 binutils 的 `sbadaddr` 兼容问题
+**为什么不在 `__alltraps` 里切换内核栈？** 本实验的 `SAVE_ALL` 直接在“当前 `sp`”上建 frame。内核态陷入时，当前栈就是内核栈，没问题；一旦从用户态陷入，当前 `sp` 是用户栈，`trapframe` 就落在用户可写内存里。这是框架的设计缺口，不是本次评分点，我们在 Challenge 里显式切栈来规避，但默认路径没有改——改了会动到 `SAVE_ALL` 的契约，超出本次范围。
 
-我们在最终回归时遇到一个真实编译错误：
+**为什么 `x0` 在 `SAVE_ALL` 里存、在 `RESTORE_ALL` 里不恢复？** 存它是为了让 36 个槽位与结构体字段一一对应，偏移计算不需要特判；不恢复它是因为 `x0` 恒为 0，恢复动作没有语义。两件事看起来矛盾，其实分别服务于“布局一致性”和“执行正确性”。
 
-```text
-Error: unknown CSR `sbadaddr'
-```
+**任何中断都需要保存全部寄存器吗？** 不一定。若入口能按 cause 精确分流，理论上只保存被破坏的寄存器和必要 CSR 就够；但 ucore 在进入 C 代码前还不知道这次是什么中断，handler 又可能调用任意函数，所以只保存一部分无法证明安全。统一保存 32 个通用寄存器，代价是每次陷入 288 字节，换来的是“无论 handler 怎么改都不会漏现场”。这是典型的用空间换可证明性。
 
+## 五、模块二：中断与异常处理
 
-2026-11-03 我们用最小汇编文件重新复现了一次，输出留存为 `logs/build/binutils-sbadaddr-20261103.log`；修复后的完整构建见 `logs/build/build.log`。
+### 5.1 分流：最高位是中断位
 
-`SAVE_ALL` 里写的是 `csrr s3, sbadaddr`。`sbadaddr` 是旧工具链对 `stval` 的别名，新版 binutils 已经删掉了这个名字。指导书要求“不得修改 `SAVE_ALL`”，所以我们的修复不是改 `SAVE_ALL`，而是在文件级加一行数值别名：
-
-```asm
-.equ sbadaddr, 0x143
-```
-
-`0x143` 就是 `stval` 的 CSR 编号。汇编结果与旧工具链完全一致，`SAVE_ALL` 原文一个字没动。
-
-### 4.3 模块 B：`interrupt_handler()` 与 `exception_handler()`（负责人：2410749 宋秋实）
-
-#### `trap_dispatch` 的分流
+`trap_dispatch` 本身是骨架代码，我们逐字未改；它用有符号数判断：
 
 ```c
-if ((intptr_t)tf->cause < 0) {
-    interrupt_handler(tf);
-} else {
-    exception_handler(tf);
-}
+if ((intptr_t)tf->cause < 0) interrupt_handler(tf);
+else                          exception_handler(tf);
 ```
 
-RISC-V 的 `scause` 最高位为 1 表示异步中断，为 0 表示同步异常。这里用有符号数判断最高位，和 `cause & (1UL << 63)` 是等价的。
-
-#### `interrupt_handler()`
+`scause` 最高位为 1 表示异步中断。进入 `interrupt_handler` 后还要把最高位掩掉，才能和 `IRQ_S_TIMER` 这类小整数比较：
 
 ```c
-switch (tf->cause & INTERRUPT_CAUSE_MASK) {
-case IRQ_S_SOFT:
-    cprintf("Supervisor software interrupt\n");
-    break;
+switch (tf->cause & INTERRUPT_CAUSE_MASK) { ... }
+```
+
+这一步很容易漏。漏了不会编译错，只会让所有中断都落进 `default`，然后打印一串“Unknown interrupt”。
+
+### 5.2 时钟：每次进入都必须续订
+
+```c
 case IRQ_S_TIMER:
     clock_set_next_event();
     ticks++;
     if (ticks % TICK_NUM == 0) print_ticks();
     if (ticks >= SHUTDOWN_AFTER) sbi_shutdown();
     break;
-case IRQ_S_EXT:
-    cprintf("Supervisor external interrupt\n");
-    break;
-default:
-    cprintf("Unknown interrupt: cause %d\n",
-            (int)(tf->cause & INTERRUPT_CAUSE_MASK));
-    break;
-}
 ```
 
-三个细节：
+`clock_set_next_event()` 调的是 `sbi_set_timer(get_cycles() + timebase)`，一次只预约一个事件，不会自动重装。我们第一版把续订放在分支末尾，第 100 次打印后路径提前离开，续订恰好被绕过；前 99 次都正常，所以问题直到第一行 `100 ticks` 才暴露，之后时钟就停住了。把续订提到 `case` 第一行，不是形式要求：它让“先预约下一次”不受后续任何 `break`、打印或关机判断影响。
 
-1. **先续订下一次时钟事件**。OpenSBI 的 `sbi_set_timer()` 一次只设置一个事件；不续订就只能收到一次中断。
-2. `ticks` 每进一次定时器中断加一，`TICK_NUM=100` 时打印一行。
-3. `SHUTDOWN_AFTER=1000`，给官方 200 tick 用例留出足够余量；不能把它改到 200 附近，否则测试可能提前关机。
+`TICK_NUM=100`、`ticks` 在 `clock.c` 里是 `volatile size_t`，这两点是框架给定的。`SHUTDOWN_AFTER` 是我们加的：评分用例只要求跑到 200 tick，关机点必须明显晚于它，否则可能在测试打印 PASS 之前就断电。取 1000，是给评分留 5 倍余量，不是在模拟真实内核的关机策略。
 
-#### `exception_handler()`
-
-```c
-switch (tf->cause) {
-case CAUSE_BREAKPOINT:
-    cprintf("Breakpoint at 0x%016lx\n", tf->epc);
-    tf->epc += instruction_length(tf->epc);
-    break;
-case CAUSE_ILLEGAL_INSTRUCTION:
-    cprintf("Illegal instruction at 0x%016lx\n", tf->epc);
-    tf->epc += instruction_length(tf->epc);
-    break;
-case CAUSE_USER_ECALL:
-    cprintf("User ecall at 0x%016lx\n", tf->epc);
-    tf->epc += 4;
-    break;
-case CAUSE_SUPERVISOR_ECALL:
-    cprintf("Supervisor ecall at 0x%016lx\n", tf->epc);
-    tf->epc += 4;
-    break;
-default:
-    print_trapframe(tf);
-    break;
-}
-```
-
-关键点是 `instruction_length()`：
+### 5.3 异常：`epc` 不能一律加 4
 
 ```c
 static uintptr_t instruction_length(uintptr_t epc) {
@@ -422,180 +191,136 @@ static uintptr_t instruction_length(uintptr_t epc) {
 }
 ```
 
-RISC-V 的 32 位指令低两位是 `11`，16 位压缩指令不是。测试里的 `ebreak` 是 2 字节，`.word 0x7b` 是 4 字节；如果统一 `+4`，断点测试会跳过一条正常指令，非法指令测试也可能落到错误位置。
+RISC-V 的 32 位指令低两位是 `11`，16 位压缩指令不是。测试里的 `ebreak` 是 2 字节，`.word 0x7b` 是 4 字节。统一 `+4` 的后果不是“少执行一条”，而是返回到指令中间，马上再触发一次非法指令，形成异常循环。
 
-#### 最终输出
+`ecall` 是另一种情况：它本身是 4 字节，语义上要返回到下一条指令，所以 `CAUSE_USER_ECALL` 和 `CAUSE_SUPERVISOR_ECALL` 都直接 `+4`。
 
-Test 2 的日志同时覆盖了非法指令、软件中断、未知中断和未知异常兜底：
+未列出的异常一律 `print_trapframe(tf)`。这不是“偷懒”，而是同步异常没法凭空恢复：不知道该不该跳过、该跳到哪，贸然返回只会无限重入。把完整现场打出来，是唯一诚实的兜底。
+
+### 5.4 验证
+
+Test 2 同时覆盖非法指令、软件中断、未知中断和未知异常：
 
 ```text
 Illegal instruction at 0xffffffffc02019b6
 Supervisor software interrupt
 Unknown interrupt: cause 15
   cause    0x00000014
-[Test 2] handler fallback completed\n[Test 2] Illegal instruction return: PASS (25/25)
+[Test 2] Illegal instruction return: PASS (25/25)
 ```
-
-![Test 2：非法指令、软件中断、未知中断与未知异常兜底](images/shot-L3-03-illegal.png)
-
-这张图来自 `report/logs/run/ILLEGAL.final.log` 第 67–70、104–107 行。第 107 行里的 `\n` 是评分脚本自身输出里的字面量，不是我们的代码换行。
 
 Test 3 覆盖持续时钟：
 
 ```text
 100 ticks
-100 ticks
+...
 [Test 3] Sustained supervisor timer: PASS (40/40, ticks=200)
 ```
 
+日志里 `100 ticks` 出现 10 次，说明不是“第一次中断凑巧打印了一次”，而是真的被反复续订。
+
+![Test 2：非法指令与未知异常](images/shot-L3-03-illegal.png)
+
+Test 2 的关键不是 PASS 本身，而是 `Illegal instruction at ...` 之后还能回到用户测试代码；若 `epc` 推进错，下一行就会变成新的非法指令。截图最后一行的换行转义符是评分脚本打印的字面量，不是内核多输出了一行。
+
 ![Test 3：持续时钟中断](images/shot-L3-04-timer.png)
 
-这张图来自 `report/logs/run/TIMER.final.log` 第 67–72 行。最终日志里 `100 ticks` 出现 10 次，`ticks=200` 出现在 PASS 行，说明定时器被持续续订。
+`100 ticks` 连续出现，尾部给出 `ticks=200`，两者必须同时成立。
 
-### 4.4 Challenge 1：S → U → S 的完整往返（负责人：2412090 兰雨杉）
+### 5.5 一个框架层面的缺陷
 
-#### 设计目标
+`print_trapframe()` 用 `0x%08x` 打印 64 位寄存器：
 
-本次指导书、PPT 和代码骨架都没有给出固定的 Challenge 题目，`init.c` 里也没有预留挑战钩子。我们没有把它做成“只改 `sstatus.SPP` 跳一下”的演示，而是自行设计了**真正的地址空间切换**，并用 `#ifdef LAB3_CHALLENGE_SWITCH` 接入 `init.c`：
-
-1. 建一份独立的 Sv39 根页表 `user_root`，复制内核高半区（entry 511）和启动期恒等映射（entry 2）。
-2. 给 `user_root[0]` 建三级页表链 `L1 -> L0`，映射：
-   - VA `0x1000` → 用户代码页，`U|R|W|X|A|D`；
-   - VA `0x2000`、`0x3000` → 用户栈两页，`U|R|W|A|D`。
-3. 用户代码页写入三条指令：`addi a0, x0, 0x55`、`ecall`、`j .`。
-4. 设置 `sstatus.SPP=0`、`SPIE=0`、`SIE=0`、`SUM=1`，把 `satp` 切到 `user_root`，`sret` 进入 U 模式。
-5. 用户态执行 `ecall`，`scause=8`；`lab3_switch_back()` 把 `sstatus.SPP` 置 1、`sp` 换成挑战专用内核栈、`epc` 指向恢复桩。
-6. 恢复桩先建立可信内核栈，再清 `SUM`，把 `satp` 切回内核页表，`sfence.vma`，打印 PASS。
-
-#### 为什么返回时要切内核栈
-
-本实验的 `SAVE_ALL` 没有用 `sscratch` 切换内核栈：它直接在“当前 sp”上构造 trapframe。U 模式进来时，当前 sp 是用户栈，所以 trapframe 也在用户栈上。返回 S 模式时，如果我们继续用用户栈，就把用户可控的指针带回了内核。Challenge 里显式切到 `switch_stack`，是比“沿用用户 sp”更正确的做法。
-
-#### 一个很有价值的 bug：SUM 清得太早
-
-第一版 Challenge 在 `lab3_switch_back()` 里就把 `tf->status` 的 `SUM` 清掉了。结果 `RESTORE_ALL` 的第一条 `csrw sstatus, t0` 把 `SUM=0` 写进 CSR，紧接着的 `ld t0, 264(sp)` 还要从**用户栈上的 trapframe** 读 `sepc`，于是触发：
-
-```text
-scause = 0xd   # load page fault
+```c
+cprintf("  epc      0x%08x\n", tf->epc);
 ```
 
-然后递归 Trap，栈一路往下掉，最后看到 `scause=0xf` 的 store page fault。这个现象很容易误判成“栈指针恢复错了”，但 GDB 在 `__trapret` 看到的 trapframe 是完全正确的，真正的问题是 **S 模式在 `SUM=0` 时不能读用户页**。
+在 RV64 上这会截掉高 32 位。日志里的 `cause 0x00000014` 看不出问题，因为异常号本来就只有几位；但 `epc`、`badvaddr` 的高位会丢失，真正调试时可能被误导。这是骨架自带的问题，我们没有改：评分脚本只匹配 `cause` 行，改打印格式反而可能影响既有输出。把它写出来，是因为“能通过测试”不等于“工具没问题”。
 
-修复：
+### 5.6 对 Lab2 的回归：分配器必须关中断
 
-- `lab3_switch_back()` 不再清 `SUM`；
-- 恢复桩先 `sp = switch_stack_top`，再 `csrc sstatus, SUM`；
-- 最后恢复 `satp`。
+Lab2 的 `alloc_pages/free_pages` 在“单线程、没有异步中断”的假设下不加保护也能过；Lab3 一打开时钟中断，这个假设就不成立了。分配器正在改 free list 时被 timer trap 打断，如果后续路径再分配或释放页，就可能看到半更新的链表。我们在 `pmm.c` 的这两个入口外包 `local_intr_save/local_intr_restore`，恢复的是进入前的 SIE，而不是无条件开中断——嵌套临界区才不会提前放行。
 
-这也解释了一个容易被忽略的顺序：**先离开用户栈，再关 SUM**。
+这不是评分点，但它是 Lab3 对 Lab2 的真实回归：中断让“顺序执行的代码”变成了“随时可能被切开的代码”。理论课把这类问题叫临界区；实验里它的表现不是锁竞争，而是 alloc/free 的内部状态被 trap 看见。
 
-#### 最终输出
+## 六、Challenge 1：S → U → S 的一次完整往返
+
+### 6.1 设计
+
+目标不是“改一下 `SPP` 跳过去再跳回来”，而是真的换地址空间：
+
+1. 建独立 Sv39 根页表 `user_root`，复制内核高半区（entry 511）和启动期恒等映射（entry 2），保证切 `satp` 后内核还能取指；
+2. 在 `user_root[0]` 下建 `L1 → L0`，映射用户代码页 `0x1000`（`U|R|W|X`）和用户栈页 `0x2000`、`0x3000`（`U|R|W`，栈顶 `0x4000`）；
+3. 用户代码只有三条指令：`addi a0, x0, 0x55`、`ecall`、`j .`；
+4. 清 `SPP`、置 `SUM`，切 `satp`，`sfence.vma`，`sret` 进入 U 模式；
+5. U 模式 `ecall` 触发 `scause=8`，处理函数把 `SPP` 置 1、`sp` 换到挑战专用内核栈、`epc` 指向恢复桩；
+6. 恢复桩先切内核栈，再清 `SUM`，最后切回内核页表。
+
+指导书没有规定 Challenge 入口，`init.c` 也没有预留钩子。我们用 `LAB3_CHALLENGE_SWITCH` 编译开关接入：默认构建不编译、不执行这段代码，评分路径保持原样；只有显式传 `DEFS=-DLAB3_CHALLENGE_SWITCH` 时才进入挑战。这样既不改默认 trap 路径，也不会让挑战代码污染 100/100 的基线。
+
+### 6.2 最关键的一个 bug：`SUM` 清早了
+
+第一版在 `lab3_switch_back()` 里就把 `SUM` 清掉。结果 `RESTORE_ALL` 的第一条 `csrw sstatus, t0` 把 `SUM=0` 写进 CSR，紧接着还要从**用户栈上的 trapframe** 读 `sepc`，直接触发：
 
 ```text
-[Challenge 1] user address space: code=0x1000, stack=0x4000
-[Challenge 1] switch satp and enter U-mode (sepc=0x1000)
+scause = 0xd    # load page fault
+```
+
+然后递归 Trap，栈一路往下掉。现象看起来像“栈指针恢复错了”，但 GDB 在 `__trapret` 看到的 frame 完全正确。真正的原因是：S 模式在 `SUM=0` 时不能读用户页。
+
+修复顺序只有一句话：**先离开用户栈，再关 `SUM`**。`lab3_switch_back()` 不再清 `SUM`；恢复桩先 `sp = switch_stack_top`，再 `csrc sstatus, SUM`，最后恢复 `satp`。这个 bug 让我们第一次真正理解 `SUM` 不是“用户态权限位”，而是“S 模式能否访问 U 页”的开关。
+
+### 6.3 结果
+
+```text
 [Challenge 1] user ecall: scause=0x8, a0=0x55
 [Challenge 1] back to S-mode, satp restored to kernel page table
 [Challenge 1] PASS: S -> U -> S round trip completed
 ```
 
+`a0=0x55` 证明用户代码真的执行了，`scause=0x8` 证明是 U 模式 `ecall`，最后一行证明 `satp` 已经切回内核页表。
+
 ![Challenge 1：S → U → S](images/shot-L3-05-challenge.png)
 
-这张图来自 `report/logs/run/CHALLENGE.serial.log` 第 68–72 行。`a0=0x55` 是用户代码写进去的值，证明 U 模式确实执行了；`scause=0x8` 是 U-mode ecall；最后一行是恢复桩打印的。
+这几行分别对应：建立用户地址空间、切换 `satp` 进入 U 模式、在 U 模式发起 `ecall`、恢复 S 模式并切回内核页表。
 
-Challenge 只在 `-DLAB3_CHALLENGE_SWITCH` 下编译，默认 `make grade` 不包含它。最终默认评分仍是 100/100，说明扩展隔离成立。
+## 七、测试与判读
 
----
-
-## 五、测试与验证
-
-### 5.1 官方评分
-
-| 用例 | 分值 | 最终结果 | 原始日志 |
-|---|---:|---|---|
-| Trap 入口、寄存器恢复、断点 EPC | 35 | PASS (35/35) | `logs/run/CONTEXT.final.log` |
-| 非法指令 EPC 推进与返回 | 25 | PASS (25/25) | `logs/run/ILLEGAL.final.log` |
-| 持续时钟与重复 Trap 返回 | 40 | PASS (40/40) | `logs/run/TIMER.final.log` |
-| 总分 | 100 | **100/100** | `logs/run/grade-final.log` |
-
-![官方 make grade 最终回归](images/shot-L3-01-grade.png)
-
-这张图来自 `report/logs/run/grade-final.log` 第 27、53、79、80 行。三条 PASS 和总分是 `grade.sh` 的原始输出。
-2026-11-03，我们对仓库里的当前源码做了一次 `make clean && make grade` 复跑，结果仍是 **100/100**，完整输出见 `logs/run/grade-recheck-20261103.log`；同一天 Challenge 也用 `-DLAB3_CHALLENGE_SWITCH` 复跑，见 `logs/run/CHALLENGE.recheck-20261103.log`。这两份日志说明提交到仓库的版本本身可复现，而不是只保留了某一次运行的截图。
-
-### 5.2 我们实际检查的边界
-
-除了官方用例，我们在实现和复核时重点检查了这些边界：
-
-| 边界 | 现象 | 结论 |
+| 用例 | 结果 | 原始日志 |
 |---|---|---|
-| 16 位 vs 32 位指令 | `ebreak` 是 2 字节，`.word` 是 4 字节 | `instruction_length()` 按低两位判断，不能写死 `+4` |
-| `sp` 恢复顺序 | 先恢复 `sp` 会让后续 `ld` 读错基址 | `sp` 必须最后恢复 |
-| `x0` | 写 `x0` 无效 | `RESTORE_ALL` 跳过 `x0` |
-| 定时器只响一次 | 不调用 `clock_set_next_event()` 只有一次 `100 ticks` | 定时器分支第一件事就是续订 |
-| 未知中断 `cause=15` | 默认分支必须输出现有格式 | 用 `cause & ~(1<<63)` 后打印 `15` |
-| 未知异常 `cause=20` | 不能只打印一行 | 调用 `print_trapframe(tf)` 兜底 |
-| Challenge 的 `SUM` | 清早了会 load page fault | 切内核栈后再清 |
-| QEMU 7.0 启动 | `-device loader` 下 OpenSBI 跳到 0 | 改用 `-kernel` |
+| Trap 入口、寄存器恢复、断点 EPC | PASS (35/35) | `logs/run/CONTEXT.final.log` |
+| 非法指令 EPC 推进与返回 | PASS (25/25) | `logs/run/ILLEGAL.final.log` |
+| 持续时钟与重复返回 | PASS (40/40) | `logs/run/TIMER.final.log` |
+| 总分 | **100/100** | `logs/run/grade-final.log` |
+| Challenge 1 | PASS | `logs/run/CHALLENGE.serial.log` |
 
-### 5.3 可重跑性
+2026-11-03 我们对提交树重新跑了一遍：`make clean && make grade` 仍是 100/100，Challenge 仍是 PASS（`logs/run/grade-recheck-20261103.log`、`logs/run/CHALLENGE.recheck-20261103.log`）。这一步是必要的——只保留某一次成功截图，无法证明仓库里的代码就是跑出那个结果的那份。
 
-所有关键结果都可以用下面的命令复现：
+![官方评分总分](images/shot-L3-01-grade.png)
 
-```bash
-cd lab3/code
-make clean
-make grade
-```
+总分 100/100，三个用例分别是 35、25、40 分。
 
-Challenge：
+判读方法只有三条：
 
-```bash
-make clean
-make DEFS=-DLAB3_CHALLENGE_SWITCH
-qemu-system-riscv64 -machine virt -nographic -bios default \
-  -kernel bin/ucore.img -serial file:challenge.log \
-  -monitor none -no-reboot
-```
+- `ticks` 停在 100：定时器没续订；
+- 断点返回后立刻非法指令：`epc` 被固定加了 4；
+- 出现 `scause=0xd` 且反复 Trap：先查 `SUM` 和栈，再查 frame 布局。
 
-静态证据：
+## 八、Prompt：怎么让 AI 写出可评审的代码
 
-```bash
-riscv64-unknown-elf-objdump -d bin/kernel > report/logs/static/kernel.asm
-riscv64-unknown-elf-nm -n bin/kernel > report/logs/static/symbols.txt
-riscv64-unknown-elf-objdump -d bin/kernel | sed -n '/<__alltraps>:/,/^$/p' \
-  > report/logs/static/trapentry.disasm.txt
-```
+我们的 spec 固定四段：**输入、输出、约束、验收**。约束里必须写“不能做什么”，因为 AI 最容易犯的错不是不会写，而是顺手改了不该改的地方。
 
----
+| 模块 | 输入 | 输出 | 关键约束 | 验收 |
+|---|---|---|---|---|
+| A：`RESTORE_ALL` | 栈顶的 36 槽 `trapframe` | 恢复 CSR 与通用寄存器后 `sret` | 不改 `SAVE_ALL`、结构体、`trap()` 签名；`sp` 最后恢复 | Test 1 35/35；反汇编末尾为 `ld sp,16(sp)`、`sret` |
+| B：中断/异常处理 | `scause`、`sepc`、`stval` | 续订时钟、推进 `epc`、打印或关机 | 先掩中断位；每次时钟中断都续订；按指令长度推进 | Test 2 25/25、Test 3 40/40 |
+| Challenge 1 | 内核页表、用户代码页、用户栈 | 一次 S → U → S 往返 | 不改默认 trap 路径；先离用户栈再清 `SUM` | `scause=0x8`、`a0=0x55`、`satp` 已恢复 |
 
-## 六、Prompt、spec 与 AI 协作
-
-这一节按课程要求写清楚：每个练习的 `spec` 是什么、`prompt` 是怎么写的、AI 生成后我们怎么审。
-
-### 6.1 模块 A 的 spec
-
-**输入**：一个已经由 `SAVE_ALL` 构造好的 `struct trapframe`，位于当前内核栈顶。
-
-**输出**：`RESTORE_ALL` 把 trapframe 中的通用寄存器和 CSR 恢复到处理器；`__alltraps` 把 `trapframe *` 作为第一个参数传给 `trap()`，`trap()` 返回后进入 `__trapret`，最终 `sret`。
-
-**约束**：
-
-- 不得修改 `SAVE_ALL`、`struct trapframe`、`trap()` 签名；
-- `x0` 不恢复；
-- `sp` 最后恢复；
-- `sstatus`、`sepc` 要在恢复通用寄存器之前写回；
-- `sret` 是唯一的返回指令。
-
-### 6.2 模块 A 的 prompt
-
-我们给 AI 的 prompt 不是“帮我写 RESTORE_ALL”，而是把布局、约束和验收一次说清：
+模块 A 的 prompt（节选）：
 
 ```text
-你在 ucore/riscv64 的 kern/trap/trapentry.S 中工作。
 已有 SAVE_ALL 把 32 个通用寄存器和 sstatus/sepc/badvaddr/scause
 按 struct trapframe 的 36 个 uintptr_t 槽位保存在当前栈顶。
-
 请只实现 RESTORE_ALL 和 __alltraps，要求：
 1. 先恢复 sstatus、sepc，用 t0 做临时寄存器；
 2. 恢复 x1、x3..x31，不恢复 x0；
@@ -603,181 +328,87 @@ riscv64-unknown-elf-objdump -d bin/kernel | sed -n '/<__alltraps>:/,/^$/p' \
 4. __alltraps 中 SAVE_ALL 后把 sp 放进 a0，jal trap，返回后 j __trapret；
 5. 不修改 SAVE_ALL、struct trapframe、trap() 签名；
 6. 输出 unified diff，不要重写整个文件。
-
-验收：make grade 的 Test 1 必须 PASS (35/35)，且 objdump 中
-最后一条恢复指令必须是 ld sp,16(sp)，下一条是 sret。
+验收：Test 1 必须 PASS (35/35)，objdump 最后两条是 ld sp,16(sp) 与 sret。
 ```
 
-这个 prompt 的重点是 **把“不能做什么”写在“要做什么”旁边**。AI 很容易“顺手”把 `SAVE_ALL` 也改了，或者把 `sp` 和别的寄存器一起恢复；约束写清楚，返工就少。
+模块 B 的 prompt 骨架是：
 
-### 6.3 模块 B 的 spec
+- 输入：`struct trapframe *tf`，其中 `cause` 最高位表示中断；
+- 输出：软件中断、外部中断、未知中断各打印一行；定时器每 100 tick 打印，累计 10 行后关机；`ebreak`/非法指令推进 `epc` 后返回；
+- 约束：先掩 `scause` 最高位；`clock_set_next_event()` 放分支第一行；`epc` 按指令低两位推进；不碰 `trap_dispatch` 和 `SAVE_ALL`；
+- 验收：Test 2 25/25、Test 3 40/40，输出字符串逐字匹配。
 
-**输入**：`trapframe *tf`，其中 `tf->cause` 是 `scause`，`tf->epc` 是 `sepc`。
+还把四条输出格式逐字写进去，因为评分脚本是字符串匹配，差一个空格就是 0 分。
 
-**输出**：
+Challenge 的 prompt 也按四段写，核心是“真实换页表，不是只改 SPP”：
 
-- 定时器中断：续订下一次事件、`ticks++`、每 `TICK_NUM` 打印、达到 `SHUTDOWN_AFTER` 关机；
-- 软件中断：打印 `Supervisor software interrupt`；
-- 未知中断：打印 `Unknown interrupt: cause N`；
-- 断点/非法指令：打印规定格式，按指令长度推进 `epc`；
-- 未知异常：`print_trapframe(tf)`。
+- 输入：现有 Sv39 内核页表、一个用户代码页和一个用户栈；
+- 输出：串口打印 `scause=0x8`、`a0=0x55`，并回到 S 模式；
+- 约束：不改默认 trap 路径；用户页带 `U` 位；切换 `satp` 后必须 `sfence.vma`；先离开用户栈再清 `SUM`；
+- 验收：`PASS: S -> U -> S round trip completed`。
 
-**约束**：
+prompt 写了两轮。第一轮只描述正常路径；第二轮把 `scause=0xd` 的现象和“先切内核栈、再清 SUM”的顺序写进去，要求先解释再改。第二轮的回答质量明显更高，因为它有了可验证的故障现象，而不是凭空设计。
 
-- 不改函数签名；
-- 不改 `trap_dispatch`；
-- 中断原因要先清最高位再 switch；
-- `epc` 推进不能写死 `+4`；
-- 官方匹配字符串必须逐字保留。
+AI 生成后我们固定按五步审：diff 范围、偏移、顺序、字符串、回归。实际拦下来的问题：
 
-### 6.4 模块 B 的 prompt
-
-```text
-你在 ucore/riscv64 的 kern/trap/trap.c 中实现两个函数：
-void interrupt_handler(struct trapframe *tf);
-void exception_handler(struct trapframe *tf);
-
-背景：trap_dispatch 已经用 (intptr_t)tf->cause < 0 区分中断/异常。
-要求：
-1. 中断分支先 mask 掉 scause 最高位，再按 IRQ_S_TIMER/IRQ_S_SOFT/
-   IRQ_S_EXT/default 处理；
-2. 定时器分支第一行调用 clock_set_next_event()，然后 ticks++，
-   ticks % TICK_NUM == 0 时 print_ticks()，ticks >= SHUTDOWN_AFTER
-   时 sbi_shutdown()；
-3. 异常分支处理 CAUSE_BREAKPOINT、CAUSE_ILLEGAL_INSTRUCTION、
-   CAUSE_USER_ECALL、CAUSE_SUPERVISOR_ECALL，其余 print_trapframe(tf)；
-4. 断点和非法指令的 epc 推进必须按指令长度：低两位为 11 是 4 字节，
-   否则是 2 字节；不要固定 +4；
-5. 输出格式严格用：
-   "Breakpoint at 0x%016lx\n"
-   "Illegal instruction at 0x%016lx\n"
-   "Supervisor software interrupt\n"
-   "Unknown interrupt: cause %d\n"
-6. 只输出 diff，不要改 trap_dispatch 和函数签名。
-
-验收：make grade 的 Test 2/Test 3 必须 PASS，日志里要有
-"cause    0x00000014" 和 "ticks=200"。
-```
-
-### 6.5 Challenge 的 spec 与 prompt
-
-**spec**：在 `-DLAB3_CHALLENGE_SWITCH` 下，从 S 模式进入 U 模式执行一条 `ecall`，再回到 S 模式；默认构建不受影响。
-
-**prompt 要点**：
-
-```text
-设计一个不依赖进程系统的 S->U->S 演示：
-- 独立 Sv39 根页表，复制内核高半区映射；
-- 用户代码页和用户栈页加 PTE_U；
-- sret 前设置 SPP=0、SUM=1；
-- U 模式执行 ecall，trap 处理里把 SPP 置 1、sp 换内核栈、epc 指向恢复桩；
-- 恢复桩先切内核栈，再清 SUM，再恢复 satp；
-- 用 LAB3_CHALLENGE_SWITCH 宏隔离，默认 make grade 不变。
-```
-
-这个 prompt 里最关键的一句是“**先切内核栈，再清 SUM**”。我们第一版没有这句话，就踩了 `scause=0xd` 的坑；把顺序写进 prompt，是把调试经验沉淀成约束。
-
-### 6.6 AI 生成后我们怎么审
-
-我们的审查顺序是固定的：
-
-1. **看 diff 范围**：有没有改到不允许改的 `SAVE_ALL`、`trap_dispatch`、函数签名。
-2. **对布局**：每个 `ld` 的偏移是否和 `struct trapframe` 一致。
-3. **对顺序**：`sstatus`/`sepc` 是否在通用寄存器之前；`sp` 是否最后。
-4. **对字符串**：官方匹配的字符串是否逐字一致。
-5. **跑回归**：`make grade` 必须 100/100；Challenge 必须单独 PASS。
-
-### 6.7 实际遇到的 bug 与解决
-
-| 现象 | 根因 | 修复 | 回归 |
-|---|---|---|---|
-| `make grade` 0/100，OpenSBI 打印 `Next Address : 0` | QEMU 7.0 `fw_dynamic` 不认 `-device loader` | 改用 `-kernel bin/ucore.img` | 100/100；失败现场 `logs/run/qemu-loader-failure-20261103.log` |
-| `unknown CSR sbadaddr` | 新版 binutils 删除旧别名 | `.equ sbadaddr, 0x143`，不改 `SAVE_ALL` | 编译通过；报错复现 `logs/build/binutils-sbadaddr-20261103.log` |
-| Challenge `scause=0xd` 循环 | `RESTORE_ALL` 先写 `sstatus`，提前清 `SUM` 后读不了用户栈上的 trapframe | 保持 `SUM` 到恢复完成；切内核栈后再清 | Challenge PASS |
-| 只出现一次 `100 ticks` | 定时器没有续订 | 定时器分支第一行 `clock_set_next_event()` | `ticks=200` |
-| 断点返回位置不对 | 把 `ebreak` 固定当 4 字节 | 按指令低两位判断 2/4 字节 | Test 1 PASS |
-| 恢复后寄存器不对 | `sp` 提前恢复 / 漏寄存器 | `sp` 最后恢复，逐槽核对 | Test 1 PASS |
-
----
-
-## 七、重要知识点与 OS 原理对照
-
-| 本实验知识点 | OS 原理对应 | 含义、关系与差异 |
+| 现象 | 根因 | 修复 |
 |---|---|---|
-| `struct trapframe` 保存通用寄存器 | 上下文（context） | 本实验保存的是同一执行流的 Trap 现场；进程切换还要保存地址空间、调度状态、打开文件等，范围更大 |
-| `sstatus.SPP/SIE/SPIE` | 特权级与中断使能 | 硬件用 CSR 记录 Trap 来源和中断状态；`sret` 根据 SPP 决定回到 U 还是 S |
-| `scause` 最高位 | 中断/异常分类 | 最高位 1 是异步中断，0 是同步异常；这是 RISC-V 的具体编码，不是所有架构都一样 |
-| `sepc` 推进 | 异常返回/指令重启 | 断点/非法指令要跳过触发指令；时钟中断通常保留原 `sepc`，因为要回到被打断的指令继续执行 |
-| `stvec` | 中断向量 | Direct 模式下所有 Trap 都进 `__alltraps`；更复杂的系统会用向量表按 cause 分流 |
-| `sscratch` | 内核栈/用户栈切换 | 本实验只用它暂存原始 `sp`；真正的用户态内核栈切换需要额外的 per-hart 状态 |
-| `sbi_set_timer()` | 时钟中断/时间片 | OpenSBI 在 M 模式操作定时器；OS 每次中断续订下一次，形成周期节拍 |
-| `ticks` | 系统时钟计数 | 本实验只做统计打印；调度器会用它更新时间片、触发抢占 |
-| `SUM` | S 模式访问用户页 | `SUM=0` 时 S 模式不能读写 U 页；trapframe 在用户栈上时，恢复阶段必须保持 `SUM=1` |
-| `PTE_U` | 用户/内核地址空间隔离 | 用户页必须带 U 位；内核高半区映射不带 U，U 模式不能执行内核代码 |
-| `satp`/`sfence.vma` | 地址空间切换/TLB 刷新 | 改页表或切 `satp` 后必须刷新 TLB；Challenge 用它们做真正的地址空间切换 |
-| `print_trapframe()` | 内核调试/故障兜底 | 未知异常不能静默返回，否则会无限重复；打印完整现场是最后一道诊断手段 |
+| 编译报 `unknown CSR sbadaddr` | 新 binutils 删了旧别名 | 文件头 `.equ sbadaddr, 0x143` |
+| 第 100 次后时钟停住 | 续订位于可能被绕过的分支末尾 | 续订提到分支第一行 |
+| 断点返回后跑飞 | `ebreak` 被当成 4 字节 | `instruction_length()` 按低两位判断 |
+| Challenge `scause=0xd` 递归 | `SUM` 提前清零 | 切内核栈后再清 |
+| 未知中断不打印 | 忘记掩 `scause` 最高位 | 先 `& INTERRUPT_CAUSE_MASK` |
 
-### 7.1 与通用 OS 原理的差异
+## 九、理论课与实验的对应
 
-- **本实验的“上下文切换”不是“进程切换”**。我们保存/恢复的是同一个执行流的寄存器，没有切换页表、没有调度、没有 PCB。
-- **本实验的“中断处理”没有下半部/中断线程化**。所有处理都在 Trap 上下文里完成，定时器只做计数和打印。
-- **本实验的“系统调用”只有 ecall 的返回路径**，没有参数传递、返回值、用户指针校验和系统调用表。
-- **本实验的“地址空间隔离”只在 Challenge 里演示了一页用户代码和两页用户栈**，没有完整的用户进程、ELF 加载和缺页处理。
+| 实验里的东西 | 操作系统原理 | 关系与差异 |
+|---|---|---|
+| `trapframe` | 上下文（context） | 实验只保存同一执行流的寄存器；进程切换还要保存页表、调度状态、文件描述符 |
+| `sstatus.SPP/SPIE` | PSW / 特权级 | 硬件自动记录“从哪来、之前是否开中断”，`sret` 据此返回 |
+| `scause` | 中断/异常号 | RISC-V 用最高位区分异步与同步，其他架构编码不同 |
+| `sepc` + 推进 | 异常返回地址 | 断点/非法指令要跳过，时钟中断要回到原指令 |
+| `stvec` | 中断向量表 | Direct 模式只有一个入口；向量表模式才按 cause 分流 |
+| `sscratch` | 内核栈指针暂存 | 本实验只用来暂存旧 `sp`，并未实现用户态内核栈切换 |
+| `sbi_set_timer` | 时钟中断/时间片 | OpenSBI 在 M 模式操作定时器，S 模式每次续订 |
+| `ticks` | 系统节拍 | 实验只计数打印；真实内核用它驱动调度和超时 |
+| `SUM` / `PTE_U` | 用户/内核隔离 | 用户页必须带 U 位；S 模式访问 U 页要 `SUM=1` |
+| `satp` / `sfence.vma` | 地址空间切换 / TLB | 换页表必须刷新 TLB，否则旧映射还在 |
 
----
+理论课常把中断处理写成“关中断 → 保存现场 → 识别中断源 → 处理 → 恢复现场 → 开中断返回”。RISC-V 把其中一部分交给硬件：陷入时自动清 `SIE`、把旧特权级放进 `SPP`、把旧中断使能放进 `SPIE`、把 PC 和 cause 写进 CSR；软件补的是通用寄存器，`sret` 再从 `SPP/SPIE` 恢复特权级和中断使能。这个软硬件分工，是本章最值得和课堂对照的地方。
 
-## 八、OS 原理中重要但本实验未覆盖的内容
+课堂上一句话带过的“保存现场”，在实验里被拆成 36 个槽位、两条 CSR 写回和一条 `sret`：`sp` 放错位置，后面全错；`sstatus` 写早或写晚，特权级就回不去。**“现场”不是抽象名词，是一张必须逐字节对齐的表。**
 
-下面这些是操作系统原理里很重要、但本次 Lab3 的代码骨架和评分脚本没有对应的部分。我们列出来，是为了说明“本实验的边界在哪里”，而不是为了凑字数。
+差异也要说清楚：本实验没有进程、没有调度、没有系统调用表。`trapframe` 是“同一执行流的现场”，不是“进程上下文”；`ecall` 只推进了 `epc`，没有参数传递和返回值。把这两件事混为一谈，是本章最容易产生的误解。
 
-1. **进程与线程调度**：没有 PCB/TCB、就绪队列、时间片轮转、优先级和抢占。定时器只增加 `ticks`，不会触发 `schedule()`。
-2. **系统调用的完整实现**：只有 `ecall` 的 EPC 推进；没有系统调用号分发、参数寄存器约定、用户指针合法性检查、返回值写回。
-3. **缺页异常与页替换**：PPT 里的 VMA、swap、FIFO/Clock 没有出现在当前骨架；没有页表项 Present 位检查、没有 swap in/out。
-4. **完整的用户进程**：Challenge 只跑了一段裸指令，没有 ELF 加载、用户栈初始化、`argv/envp`、退出码和 `wait`。
-5. **文件系统与 I/O**：没有 inode、目录、文件描述符、块设备驱动和缓存。
-6. **同步与并发**：没有锁、信号量、条件变量；本实验是单 hart，定时器中断也不会与进程并发。
-7. **多核启动与 per-hart 状态**：没有 hart 间中断、自旋锁、每核栈和每核调度器。
-8. **中断下半部/延迟处理**：所有工作都在 Trap 上下文完成，没有软中断、tasklet、工作队列。
-9. **权限与安全**：没有用户指针校验、`SUM` 的细粒度控制、SMAP/SMEP 类似机制；Challenge 只是一次受控演示。
+## 十、OS 原理里重要、但本章没有覆盖的
 
-这些内容不是本次实验“漏做”，而是后续虚拟内存、进程管理、文件系统实验的主线。
+1. **进程与调度**：没有 PCB、就绪队列、时间片轮转。定时器只加 `ticks`，不会触发 `schedule()`。
+2. **系统调用完整路径**：没有调用号分发、参数校验、用户指针检查、返回值写回。
+3. **缺页与页替换**：PPT 里的 VMA、swap、FIFO 不在当前骨架；没有 Present 位检查和换入换出。
+4. **完整的用户进程**：Challenge 只跑三条裸指令，没有 ELF 加载、`argv/envp`、退出码。
+5. **文件系统与 I/O**：没有 inode、文件描述符、块设备驱动。
+6. **同步与并发**：单 hart，没有锁、信号量，也没有中断下半部。
+7. **多核**：没有 per-hart 栈、核间中断、自旋锁。
+8. **安全**：没有用户指针校验，Challenge 的 `SUM` 只是一次受控演示。
 
----
+这些不是“漏做”，而是后续虚拟内存、进程管理、文件系统实验的主线。知道边界在哪，比假装什么都做了更有价值。
 
-## 九、总结与收获
+## 十一、小组讨论与反思
 
-这次实验有三点体会。
+分工是按“代码所有权、运行所有权、文档所有权”切的：殷佳仪负责总体架构、模块 A 和统稿；宋秋实负责模块 B、Lab2 分配器的中断保护，并且是**全组唯一执行 `make`、QEMU、GDB、`make grade` 的人**；兰雨杉负责 Lab2 依赖移植、QEMU 适配和 Challenge。运行权集中不是为了省事，而是为了避免两个人跑出两套结论——同一个现象，必须有一份可追溯的原始日志。
 
-第一，Trap 不是一个函数，而是一条链。`SAVE_ALL` 的布局、`RESTORE_ALL` 的顺序、`sstatus` 的 SPP、`sepc` 的推进、`sret` 的特权级返回，任何一处不一致，现象都可能跑到别的模块去。我们最后用“布局表 + 反汇编 + 官方用例”三条证据对齐。
+实验里真正争论过的有三个问题：
 
-第二，环境差异必须写进报告。QEMU 7.0 的 `fw_dynamic` 不认 `-device loader`，新版 binutils 不认 `sbadaddr`，这些都不是指导书里的“知识点”，但它们是真实交付的一部分。把它们写清楚。
+**第一，`RESTORE_ALL` 能不能用 `sscratch` 取 `sp`。** 有人觉得这样更短。核对 `SAVE_ALL` 后发现 `sscratch` 已经被清零，方案直接不成立。这件事提醒我们：汇编里的“优雅写法”必须先服从既有契约。
 
-第三，Challenge 的坑最有教学意义。`SUM` 清早了一位，表面看是“栈指针坏了”，实际是“S 模式不能再读用户页”。GDB 在 `__trapret` 看到的 trapframe 完全正确，逼着我们从“寄存器值”回到“特权级和页权限”去找原因。
+**第二，定时器续订放在 `ticks++` 前还是后。** 功能上两者都能编译，但放后面时第一次中断就可能丢节拍。最后统一成“进入分支第一件事就是续订”，并在报告里把它写成约束，而不是实现细节。
 
-最终，默认构建 `make grade` 为 100/100，Challenge 1 为 PASS。我们没有把 PPT 的缺页内容写成本次成果，也没有把没跑过的测试写成“应该通过”。这份报告里的每个数字，都能在 `report/logs/` 里找到原文。
+**第三，Challenge 值不值得做。** 默认评分不含它，做它要额外处理页表、`SUM`、`satp`。我们最后还是做了，因为 `SUM` 那个 bug 是整章最有价值的一次调试：它把“特权级”“页权限”“栈”三件原本分散的知识点串成了一条因果链。
 
----
+反思有两点。其一，我们一开始也想“照着指导书的伪代码填”，但这一章恰恰没有伪代码；被迫从 `SAVE_ALL` 反推，反而第一次看清了 trapframe 的布局。其二，环境问题（QEMU 加载、`sbadaddr`）本可以早点写进实验记录，实际是踩到之后才补的；以后应该在第一次构建失败时就留日志，而不是靠记忆复述。
 
-## 附录：证据索引
+## 十二、结论
 
-| 证据 | 文件 |
-|---|---|
-| 官方最终评分 | `logs/run/grade-final.log` |
-| 2026-11-03 复跑评分 | `logs/run/grade-recheck-20261103.log` |
-| 2026-11-03 复跑 Challenge | `logs/run/CHALLENGE.recheck-20261103.log` |
-| QEMU `-device loader` 失败复现 | `logs/run/qemu-loader-failure-20261103.log` |
-| binutils `sbadaddr` 报错复现 | `logs/build/binutils-sbadaddr-20261103.log` |
-| Test 1 串口 | `logs/run/CONTEXT.final.log` |
-| Test 2 串口 | `logs/run/ILLEGAL.final.log` |
-| Test 3 串口 | `logs/run/TIMER.final.log` |
-| Challenge 串口 | `logs/run/CHALLENGE.serial.log` |
-| 默认构建 | `logs/build/build-default.log` |
-| Test 1/2/3 构建 | `logs/build/build-CONTEXT.final.log` 等 |
-| Challenge 构建 | `logs/build/build-CHALLENGE.log` |
-| 内核反汇编 | `logs/static/kernel.asm` |
-| 符号表 | `logs/static/symbols.txt` |
-| `__alltraps` 反汇编 | `logs/static/trapentry.disasm.txt` |
-| 异常/中断处理反汇编 | `logs/static/exception_handler.disasm.txt`、`interrupt_handler.disasm.txt` |
-| 截图 | `images/shot-L3-01` ~ `shot-L3-06` |
-| 分工与架构 | `分工与架构设计.md` |
-| Prompt 全文 | `prompt.md` |
+默认构建 `make grade` 为 **100/100**，Challenge 1 为 **PASS**。更重要的是，这条链上的每个结论都有对应证据：`sp` 最后恢复有反汇编，定时器续订有 `ticks=200`，`epc` 推进有非法指令日志，`SUM` 顺序有 `scause=0xd` 的失败现场。
+
+我们最终理解的是：Trap 不是“写两个函数”，而是硬件与软件之间一份严格的契约。硬件负责留下线索，软件负责补齐现场；任何一处顺序、偏移或权限判断出错，契约就断了。这一章真正训练的是**在约束下设计**，而不是记住某段汇编。
