@@ -37,25 +37,6 @@ make qemu            # 启动 QEMU，Ctrl-A X 退出
 make grade           # 官方三项评分
 ```
 
-## Challenge 1
-
-Challenge 默认不参与构建，需显式打开宏：
-
-```bash
-cd code
-make clean
-make DEFS=-DLAB3_CHALLENGE_SWITCH
-make DEFS=-DLAB3_CHALLENGE_SWITCH qemu
-```
-
-串口预期输出：
-
-```text
-[Challenge 1] user ecall: scause=0x8, a0=0x55
-[Challenge 1] back to S-mode, satp restored to kernel page table
-[Challenge 1] PASS: S -> U -> S round trip completed
-```
-
 ## 最终结果
 
 ```text
@@ -65,11 +46,7 @@ re-armed supervisor timer and repeated trap return: PASS (40/40)
 Total Score: 100/100
 ```
 
-Challenge 1 单独构建实测 `PASS`，默认评分路径不受影响。
-
-2026-11-04 合入远端修复后的最新源码复跑：`make clean && make grade` 为 **100/100**，Challenge 为 **PASS**。原始输出见 `report/logs/run/grade-20261104.log` 与 `report/logs/run/CHALLENGE-20261104.log`；2026-11-03 的历史回归见 `report/logs/run/grade-recheck-20261103.log` 与 `report/logs/run/CHALLENGE.recheck-20261103.log`。
-
-## 证据入口
+## 证据入口可核验
 
 - 官方评分原始输出：`report/logs/run/grade-final.log`
 - 最新回归：`report/logs/run/grade-20261104.log`、`report/logs/run/CHALLENGE-20261104.log`
@@ -86,7 +63,7 @@ Challenge 1 单独构建实测 `PASS`，默认评分路径不受影响。
 
 | 成员 | 学号 | 负责内容 |
 |---|---|---|
-| 殷佳仪 | 2410665 | 总体架构、模块 A、报告统稿、最终审核 |
+| 殷佳仪（组长） | 2410665 | 总体架构设计、模块 A、报告撰写统稿、最终审核 |
 | 宋秋实 | 2410749 | 模块 B、全组运行与验证 |
 | 兰雨杉 | 2412090 | Lab2 依赖移植、QEMU 适配、Challenge 1、仓库整理 |
 
