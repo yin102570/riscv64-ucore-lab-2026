@@ -1,0 +1,15 @@
+# Lab4 build and debug outputs
+code/bin/
+code/obj/
+code/.qemu.out
+code/.gdb.in
+code/projlab4-handin.tar.gz
+code/cscope*
+code/tags
+
+# Editor and OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+__pycache__/

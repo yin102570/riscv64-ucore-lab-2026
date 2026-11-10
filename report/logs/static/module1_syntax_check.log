@@ -1,0 +1,24 @@
+[Lab4 module1 static syntax check]
+Date: 2026-11-10
+Owner: 2410665
+Scope: kern/mm/pmm.c only; no QEMU, GDB, objdump, or make grade.
+
+Command:
+wsl.exe -d Ubuntu-22.04 --cd <lab4/code> -- riscv64-unknown-elf-gcc \
+  -mcmodel=medany -O2 -std=gnu99 -Wno-unused -fno-builtin -Wall \
+  -nostdinc -fno-stack-protector -ffunction-sections -fdata-sections -g \
+  -Ilibs -Ikern/debug -Ikern/driver -Ikern/trap -Ikern/mm -Ikern/sync \
+  -Ikern/fs -Ikern/process -Ikern/schedule -fsyntax-only kern/mm/pmm.c
+
+Output:
+kern/mm/pmm.c: In function 'pmm_init':
+kern/mm/pmm.c:149:5: warning: implicit declaration of function 'page_init'; did you mean 'page_insert'? [-Wimplicit-function-declaration]
+  149 |     page_init();
+      |     ^~~~~~~~~
+      |     page_insert
+
+Result: exit code 0. The module-one functions are accepted by the cross compiler.
+The only diagnostic is the pre-existing Lab2 dependency at pmm.c:149, which is
+outside module one and must be supplied by the Lab2/Lab3 dependency migration.
+This is not a substitute for the build, QEMU, GDB, or make grade evidence that
+Song Qiushi will collect under the agreed division of work.
