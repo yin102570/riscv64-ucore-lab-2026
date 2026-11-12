@@ -53,14 +53,59 @@
     .endm
 
     .macro RESTORE_ALL
-    #lab3:填写你在lab3中实现的代码
+    #lab3 依赖回填 2412090
+    # 先恢复 sstatus 与 sepc 两个会影响 sret 的 CSR。用 t0 做临时寄存器，
+    # 真正的 t0 要到下面才从 frame 中恢复，避免覆盖待恢复的值。
+    LOAD t0, 32*REGBYTES(sp)
+    csrw sstatus, t0
+    LOAD t0, 33*REGBYTES(sp)
+    csrw sepc, t0
+
+    # x0 是硬连线零寄存器，不能也不应该恢复。
+    # sp（x2）必须最后恢复：前面的加载都还要用当前 trapframe 指针。
+    LOAD x1, 1*REGBYTES(sp)
+    LOAD x3, 3*REGBYTES(sp)
+    LOAD x4, 4*REGBYTES(sp)
+    LOAD x5, 5*REGBYTES(sp)
+    LOAD x6, 6*REGBYTES(sp)
+    LOAD x7, 7*REGBYTES(sp)
+    LOAD x8, 8*REGBYTES(sp)
+    LOAD x9, 9*REGBYTES(sp)
+    LOAD x10, 10*REGBYTES(sp)
+    LOAD x11, 11*REGBYTES(sp)
+    LOAD x12, 12*REGBYTES(sp)
+    LOAD x13, 13*REGBYTES(sp)
+    LOAD x14, 14*REGBYTES(sp)
+    LOAD x15, 15*REGBYTES(sp)
+    LOAD x16, 16*REGBYTES(sp)
+    LOAD x17, 17*REGBYTES(sp)
+    LOAD x18, 18*REGBYTES(sp)
+    LOAD x19, 19*REGBYTES(sp)
+    LOAD x20, 20*REGBYTES(sp)
+    LOAD x21, 21*REGBYTES(sp)
+    LOAD x22, 22*REGBYTES(sp)
+    LOAD x23, 23*REGBYTES(sp)
+    LOAD x24, 24*REGBYTES(sp)
+    LOAD x25, 25*REGBYTES(sp)
+    LOAD x26, 26*REGBYTES(sp)
+    LOAD x27, 27*REGBYTES(sp)
+    LOAD x28, 28*REGBYTES(sp)
+    LOAD x29, 29*REGBYTES(sp)
+    LOAD x30, 30*REGBYTES(sp)
+    LOAD x31, 31*REGBYTES(sp)
+    LOAD sp, 2*REGBYTES(sp)
     .endm
 
     .globl __alltraps
 __alltraps:
     SAVE_ALL
 
-    #lab3:填写你在lab3中实现的代码
+    #lab3 依赖回填 2412090
+    # trapframe 就是当前栈顶；把它作为第一个 C 参数交给 trap()。
+    # 用 jal 而不是 call/ret 语义，trap 返回后继续走统一的恢复路径。
+    mv a0, sp
+    jal trap
+    j __trapret
     # sp should be the same as before "jal trap"
 
     .globl __trapret

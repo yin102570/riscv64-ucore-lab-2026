@@ -6,11 +6,17 @@
 #include <memlayout.h>
 #include <mmu.h>
 #include <riscv.h>
+#include <sbi.h>
 #include <stdio.h>
 #include <trap.h>
 #include <vmm.h>
 
 #define TICK_NUM 100
+
+/* 达到该节拍数后关机，避免内核在演示/评分结束后永久占用终端。 */
+#ifndef SHUTDOWN_AFTER
+#define SHUTDOWN_AFTER 1000
+#endif
 
 static void print_ticks()
 {
@@ -83,7 +89,67 @@ void print_regs(struct pushregs *gpr)
 
 extern struct mm_struct *check_mm_struct;
 
-//lab3 请补充你在lab3中的代码
+//lab3 依赖回填 2412090
+/* RISC-V 的 scause 最高位区分异步中断（1）与同步异常（0）。trap() 已经用
+ * 有符号数做了一次分流，这里再把最高位清掉，按异常码处理。 */
+#define INTERRUPT_CAUSE_MASK (~((uintptr_t)1 << 63))
+
+/* 取触发异常指令的长度：低两位为 11 表示 32 位指令，否则是 16 位压缩指令。 */
+static uintptr_t instruction_length(uintptr_t epc) {
+    uint16_t insn = *(volatile uint16_t *)epc;
+    return (insn & 0x3) == 0x3 ? 4 : 2;
+}
+
+void interrupt_handler(struct trapframe *tf) {
+    switch (tf->cause & INTERRUPT_CAUSE_MASK) {
+    case IRQ_S_SOFT:
+        cprintf("Supervisor software interrupt\n");
+        break;
+    case IRQ_S_TIMER:
+        /* 每次进入定时器中断都要续订下一次事件，否则只会收到一次节拍。 */
+        clock_set_next_event();
+        ticks++;
+        if (ticks % TICK_NUM == 0) {
+            print_ticks();
+        }
+        if (ticks >= SHUTDOWN_AFTER) {
+            sbi_shutdown();
+        }
+        break;
+    case IRQ_S_EXT:
+        cprintf("Supervisor external interrupt\n");
+        break;
+    default:
+        cprintf("Unknown interrupt: cause %d\n",
+                (int)(tf->cause & INTERRUPT_CAUSE_MASK));
+        break;
+    }
+}
+
+void exception_handler(struct trapframe *tf) {
+    switch (tf->cause) {
+    case CAUSE_BREAKPOINT:
+        cprintf("Breakpoint at 0x%016lx\n", tf->epc);
+        tf->epc += instruction_length(tf->epc);
+        break;
+    case CAUSE_ILLEGAL_INSTRUCTION:
+        cprintf("Illegal instruction at 0x%016lx\n", tf->epc);
+        tf->epc += instruction_length(tf->epc);
+        break;
+    case CAUSE_USER_ECALL:
+        cprintf("User ecall at 0x%016lx\n", tf->epc);
+        tf->epc += 4;
+        break;
+    case CAUSE_SUPERVISOR_ECALL:
+        cprintf("Supervisor ecall at 0x%016lx\n", tf->epc);
+        tf->epc += 4;
+        break;
+    default:
+        /* 未识别的异常保留完整现场，便于后续定位；这里不做静默跳过。 */
+        print_trapframe(tf);
+        break;
+    }
+}
 
 
 

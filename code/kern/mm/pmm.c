@@ -87,7 +87,71 @@ size_t nr_free_pages(void)
     return ret;
 }
 
-//lab2 请补充你在lab2中的代码
+//lab2 依赖回填 2412090
+/* page_init - 物理内存探测与页描述符初始化
+ * dtb_init() 已经把设备树探测到的物理内存起止写入 get_memory_base() /
+ * get_memory_size()；init_pmm_manager() 已经选好并初始化了页级分配器。
+ */
+static void page_init(void) {
+    extern char end[]; /* 链接脚本 tools/kernel.ld 定义的“内核镜像末尾”符号 */
+
+    /* ① 内核镜像按 va - pa = PHYSICAL_MEMORY_OFFSET 做线性映射 */
+    va_pa_offset = PHYSICAL_MEMORY_OFFSET;
+
+    /* ② 设备树探测结果；无效则终止初始化 */
+    uint64_t mem_base = get_memory_base();
+    uint64_t mem_size = get_memory_size();
+    if (mem_base == 0 || mem_size == 0) {
+        panic("page_init: invalid physical memory info from DTB");
+    }
+
+    uintptr_t pbegin = (uintptr_t)mem_base;
+    uintptr_t pend = (uintptr_t)(mem_base + mem_size);
+    /* 可管理上界向下页对齐：末尾不足一页的残段不构成完整物理页 */
+    pend = ROUNDDOWN(pend, PGSIZE);
+    if (pend <= pbegin) {
+        panic("page_init: physical memory range is empty");
+    }
+
+    /* ③ npage = PPN(内存末端)；pages[] 长度为 npage - nbase */
+    npage = PPN(pend);
+    if (npage <= nbase) {
+        panic("page_init: no manageable physical page");
+    }
+
+    cprintf("physical memory map:\n");
+    cprintf("  memory: 0x%016lx, [0x%016lx, 0x%016lx].\n", mem_size,
+            mem_base, mem_base + mem_size - 1);
+
+    /* ④ 页描述符数组：紧跟内核镜像 end 之后，页对齐 */
+    uintptr_t pages_va = ROUNDUP((uintptr_t)end, PGSIZE);
+    uintptr_t pages_pa = PADDR(pages_va);
+    size_t pages_num = npage - nbase;
+    uintptr_t pages_end_pa = pages_pa + pages_num * sizeof(struct Page);
+    if (pages_end_pa > pend) {
+        panic("page_init: page descriptor array does not fit in memory");
+    }
+    pages = (struct Page *)pages_va;
+
+    /* ⑤ 先把 [nbase, npage) 的每个物理页都标记为“保留”，
+     *    这样内核镜像区间和描述符数组区间天然不会被分配出去，
+     *    同时满足 default_init_memmap 里的 assert(PageReserved(p))。 */
+    for (size_t i = 0; i < pages_num; i++) {
+        pages[i].flags = 0;
+        pages[i].property = 0;
+        set_page_ref(&pages[i], 0);
+        list_init(&pages[i].page_link);
+        SetPageReserved(&pages[i]);
+    }
+
+    /* ⑥ 空闲区 = [描述符数组末尾向上取整, 内存末尾) */
+    uintptr_t free_start_pa = ROUNDUP(pages_end_pa, PGSIZE);
+    if (free_start_pa >= pend) {
+        cprintf("page_init: warning: no free page available\n");
+        return;
+    }
+    init_memmap(pa2page(free_start_pa), (pend - free_start_pa) / PGSIZE);
+}
 
 static void enable_paging(void)
 {
