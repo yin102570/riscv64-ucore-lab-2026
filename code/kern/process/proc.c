@@ -221,4 +221,42 @@ init_main(void *arg)
 //LAB4 function2 YOUR CODE
 
 
-//LAB4 function3 YOUR CODE
+//LAB4 function3 2412090
+// cpu_idle - the idle execution flow, the only explicit scheduling point.
+// It never returns to kern_init; it keeps yielding the CPU whenever the
+// current thread marks itself for rescheduling.
+void
+cpu_idle(void)
+{
+    while (1)
+    {
+        if (current->need_resched)
+        {
+            schedule();
+        }
+    }
+}
+
+// proc_run - make proc the running thread.
+// Set current and the page table root first, then switch context: after
+// switch_to returns we are running on *some* thread's stack, so current
+// and satp must already describe the target thread.
+void
+proc_run(struct proc_struct *proc)
+{
+    if (proc != current)
+    {
+        bool intr_flag;
+        struct proc_struct *prev = current, *next = proc;
+        local_intr_save(intr_flag);
+        {
+            current = next;
+            // Switch page table root. Sv39 mode (8 << 60), same encoding as
+            // enable_paging() in pmm.c; kernel threads share the boot page
+            // table so next->pgdir is a physical address.
+            write_csr(satp, 0x8000000000000000 | (next->pgdir >> RISCV_PGSHIFT));
+            switch_to(&(prev->context), &(next->context));
+        }
+        local_intr_restore(intr_flag);
+    }
+}
