@@ -410,17 +410,12 @@ static void check_pgdir(void)
 static void check_boot_pgdir(void)
 {
     size_t nr_free_store;
-    pte_t *ptep;
-    int i;
 
     nr_free_store = nr_free_pages();
 
-    for (i = ROUNDDOWN(KERNBASE, PGSIZE); i < npage * PGSIZE; i += PGSIZE)
-    {
-        assert((ptep = get_pte(boot_pgdir_va, (uintptr_t)KADDR(i), 0)) != NULL);
-        assert(PTE_ADDR(*ptep) == i);
-    }
-
+    /* 原逐页检查循环是 x86 代码遗留，在 RISC-V Sv39 的 1GiB 超级页布局下不适用：
+     * 同一超级页内的地址命中同一个叶子 PTE，无法用 PTE_ADDR(*ptep) == pa 逐页验证；
+     * 且原实现因 i 是 32 位 int 装不下 KERNBASE 高地址而实际空转。现已移除。 */
     assert(boot_pgdir_va[0] == 0);
 
     struct Page *p;
