@@ -218,7 +218,143 @@ init_main(void *arg)
     return 0;
 }
 
-//LAB4 function2 YOUR CODE
+//LAB4 function2 2410749
+
+// alloc_proc - alloc a proc_struct and init all fields of it
+static struct proc_struct *
+alloc_proc(void)
+{
+    struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
+    if (proc != NULL)
+    {
+        proc->state = PROC_UNINIT;
+        proc->pid = -1;
+        proc->runs = 0;
+        proc->kstack = 0;
+        proc->need_resched = 0;
+        proc->parent = NULL;
+        proc->mm = NULL;
+        memset(&(proc->context), 0, sizeof(struct context));
+        proc->tf = NULL;
+        proc->pgdir = boot_pgdir_pa;
+        proc->flags = 0;
+        memset(proc->name, 0, PROC_NAME_LEN + 1);
+        list_init(&(proc->list_link));
+        list_init(&(proc->hash_link));
+    }
+    return proc;
+}
+
+// copy_mm - kernel threads share the kernel address space; no user mm to copy
+static int
+copy_mm(uint32_t clone_flags, struct proc_struct *proc)
+{
+    return 0;
+}
+
+// copy_thread - setup the trapframe and context for the new thread
+static void
+copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf)
+{
+    proc->tf = (struct trapframe *)(proc->kstack + KSTACKSIZE) - 1;
+    *(proc->tf) = *tf;
+    proc->tf->gpr.a0 = 0;
+    proc->tf->gpr.sp = (esp == 0) ? (uintptr_t)(proc->tf) : esp;
+    proc->context.ra = (uintptr_t)forkret;
+    proc->context.sp = (uintptr_t)(proc->tf);
+}
+
+// do_fork - the seven-step process creation with rollback on failure
+int
+do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
+{
+    int ret = -E_NO_FREE_PROC;
+    struct proc_struct *proc = alloc_proc();
+    if (proc == NULL)
+    {
+        goto fork_out;
+    }
+    proc->parent = current;
+
+    ret = setup_kstack(proc);
+    if (ret != 0)
+    {
+        goto bad_fork_cleanup_proc;
+    }
+    ret = copy_mm(clone_flags, proc);
+    if (ret != 0)
+    {
+        goto bad_fork_cleanup_kstack;
+    }
+    copy_thread(proc, stack, tf);
+
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        proc->pid = get_pid();
+        hash_proc(proc);
+        list_add(&proc_list, &(proc->list_link));
+        nr_process++;
+    }
+    local_intr_restore(intr_flag);
+
+    wakeup_proc(proc);
+    ret = proc->pid;
+
+fork_out:
+    return ret;
+
+bad_fork_cleanup_kstack:
+    put_kstack(proc);
+bad_fork_cleanup_proc:
+    kfree(proc);
+    goto fork_out;
+}
+
+// kernel_thread - wrap fn(arg) into a first-run trapframe and fork it
+int
+kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags)
+{
+    struct trapframe tf;
+    memset(&tf, 0, sizeof(struct trapframe));
+    tf.gpr.s0 = (uintptr_t)fn;
+    tf.gpr.s1 = (uintptr_t)arg;
+    tf.status = read_csr(sstatus);
+    tf.status |= SSTATUS_SPP | SSTATUS_SPIE;
+    tf.status &= ~(uintptr_t)SSTATUS_SIE;
+    tf.epc = (uintptr_t)kernel_thread_entry;
+    return do_fork(clone_flags, 0, &tf);
+}
+
+// proc_init - turn current execution into idleproc, then create initproc
+void
+proc_init(void)
+{
+    int i;
+    list_init(&proc_list);
+    for (i = 0; i < HASH_LIST_SIZE; i++)
+    {
+        list_init(hash_list + i);
+    }
+
+    idleproc = alloc_proc();
+    assert(idleproc != NULL);
+    current = idleproc;
+
+    idleproc->pid = 0;
+    idleproc->state = PROC_RUNNABLE;
+    idleproc->kstack = (uintptr_t)bootstack;
+    idleproc->need_resched = 1;
+    set_proc_name(idleproc, "idle");
+    nr_process++;
+
+    int pid = kernel_thread(init_main, "Hello world!!", 0);
+    assert(pid == 1);
+    initproc = find_proc(1);
+    assert(initproc != NULL);
+    set_proc_name(initproc, "init");
+}
+
 
 
 //LAB4 function3 2412090
