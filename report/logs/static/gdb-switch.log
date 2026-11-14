@@ -1,0 +1,19 @@
+The target architecture is set to "riscv:rv64".
+0x0000000000001000 in ?? ()
+Breakpoint 1 at 0xffffffffc0203778: file kern/process/switch.S, line 11.
+Breakpoint 2 at 0xffffffffc020326c: file kern/process/proc.c, line 151.
+Breakpoint 3 at 0xffffffffc0200da2: file kern/trap/trapentry.S, line 120.
+Breakpoint 4 at 0xffffffffc02031f2: file kern/process/entry.S, line 4.
+
+===== [switch_to]  pc=0xffffffffc0203778 =====
+  from(prev->context)=0xffffffffc040e040  to(next->context)=0xffffffffc040e140
+  to->context.ra = 0xffffffffc020326c
+  to->context.sp = 0xffffffffc0411ee0
+
+===== [forkret]  pc=0xffffffffc020326c =====
+
+===== [forkrets]  pc=0xffffffffc0200da2  a0(tf)=0xffffffffc0411ee0 =====
+
+===== [kernel_thread_entry]  pc=0xffffffffc02031f2 =====
+  s0(fn)=0xffffffffc020327a  s1(arg)=0xffffffffc0205390
+[Inferior 1 (process 1) exited normally]

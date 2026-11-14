@@ -1,0 +1,171 @@
+
+bin/kernel:     file format elf64-littleriscv
+
+SYMBOL TABLE:
+ffffffffc0200000 l    d  .text	0000000000000000 .text
+ffffffffc0203d78 l    d  .rodata	0000000000000000 .rodata
+ffffffffc02056e8 l    d  .srodata.nbase	0000000000000000 .srodata.nbase
+ffffffffc0206000 l    d  .data	0000000000000000 .data
+ffffffffc0209020 l    d  .sdata	0000000000000000 .sdata
+ffffffffc0209030 l    d  .bss	0000000000000000 .bss
+0000000000000000 l    d  .riscv.attributes	0000000000000000 .riscv.attributes
+0000000000000000 l    d  .comment	0000000000000000 .comment
+0000000000000000 l    d  .debug_line	0000000000000000 .debug_line
+0000000000000000 l    d  .debug_line_str	0000000000000000 .debug_line_str
+0000000000000000 l    d  .debug_info	0000000000000000 .debug_info
+0000000000000000 l    d  .debug_abbrev	0000000000000000 .debug_abbrev
+0000000000000000 l    d  .debug_aranges	0000000000000000 .debug_aranges
+0000000000000000 l    d  .debug_str	0000000000000000 .debug_str
+0000000000000000 l    d  .debug_rnglists	0000000000000000 .debug_rnglists
+0000000000000000 l    d  .debug_frame	0000000000000000 .debug_frame
+0000000000000000 l    d  .debug_loclists	0000000000000000 .debug_loclists
+0000000000000000 l    df *ABS*	0000000000000000 entry.o
+0000000000000000 l    df *ABS*	0000000000000000 init.c
+0000000000000000 l    df *ABS*	0000000000000000 readline.c
+ffffffffc0209030 l     O .bss	0000000000000400 buf
+0000000000000000 l    df *ABS*	0000000000000000 stdio.c
+ffffffffc020016a l     F .text	000000000000001a cputch
+0000000000000000 l    df *ABS*	0000000000000000 kdebug.c
+0000000000000000 l    df *ABS*	0000000000000000 kmonitor.c
+ffffffffc02054d8 l     O .rodata	0000000000000048 commands
+0000000000000000 l    df *ABS*	0000000000000000 panic.c
+ffffffffc020d468 l     O .bss	0000000000000004 is_panic
+0000000000000000 l    df *ABS*	0000000000000000 clock.c
+ffffffffc020d470 l     O .bss	0000000000000008 timebase
+0000000000000000 l    df *ABS*	0000000000000000 console.c
+0000000000000000 l    df *ABS*	0000000000000000 dtb.c
+ffffffffc020d488 l     O .bss	0000000000000008 memory_base
+ffffffffc020d480 l     O .bss	0000000000000008 memory_size
+0000000000000000 l    df *ABS*	0000000000000000 intr.c
+0000000000000000 l    df *ABS*	0000000000000000 picirq.c
+0000000000000000 l    df *ABS*	0000000000000000 trap.c
+0000000000000000 l    df *ABS*	0000000000000000 trapentry.o
+0000000000000000 l    df *ABS*	0000000000000000 default_pmm.c
+ffffffffc0200da6 l     F .text	0000000000000012 default_init
+ffffffffc0209430 l     O .bss	0000000000000018 free_area
+ffffffffc0200db8 l     F .text	000000000000000a default_nr_free_pages
+ffffffffc0200dc2 l     F .text	00000000000006d2 best_fit_check
+ffffffffc0201494 l     F .text	0000000000000172 default_free_pages
+ffffffffc0201606 l     F .text	0000000000000104 default_alloc_pages
+ffffffffc020170a l     F .text	00000000000000f2 default_init_memmap
+0000000000000000 l    df *ABS*	0000000000000000 kmalloc.c
+ffffffffc02017fc l     F .text	00000000000000b6 slob_free
+ffffffffc0209020 l     O .sdata	0000000000000008 slobfree
+ffffffffc02018b2 l     F .text	0000000000000064 __slob_get_free_pages.constprop.0
+ffffffffc0201916 l     F .text	00000000000000f6 slob_alloc.constprop.0
+ffffffffc020d490 l     O .bss	0000000000000008 bigblocks
+ffffffffc0209010 l     O .data	0000000000000010 arena
+0000000000000000 l    df *ABS*	0000000000000000 pmm.c
+ffffffffc0201be6 l     F .text	000000000000001c pa2page.part.0
+0000000000000000 l    df *ABS*	0000000000000000 vmm.c
+ffffffffc0202d78 l     F .text	0000000000000024 check_vma_overlap.part.0
+0000000000000000 l    df *ABS*	0000000000000000 entry.o
+0000000000000000 l    df *ABS*	0000000000000000 proc.c
+ffffffffc02031fa l     F .text	0000000000000072 alloc_proc
+ffffffffc020326c l     F .text	000000000000000e forkret
+ffffffffc020327a l     F .text	0000000000000072 init_main
+ffffffffc0209448 l     O .bss	0000000000000010 name.2
+ffffffffc0209458 l     O .bss	0000000000004000 hash_list
+ffffffffc020902c l     O .sdata	0000000000000004 last_pid.1
+ffffffffc0209028 l     O .sdata	0000000000000004 next_safe.0
+ffffffffc020d4c8 l     O .bss	0000000000000004 nr_process
+0000000000000000 l    df *ABS*	0000000000000000 switch.o
+0000000000000000 l    df *ABS*	0000000000000000 sched.c
+0000000000000000 l    df *ABS*	0000000000000000 hash.c
+0000000000000000 l    df *ABS*	0000000000000000 printfmt.c
+ffffffffc02038be l     F .text	000000000000006e printnum
+ffffffffc02056b0 l     O .rodata	0000000000000038 error_string
+0000000000000000 l    df *ABS*	0000000000000000 string.c
+ffffffffc02001ea g     F .text	000000000000008c print_kerninfo
+ffffffffc0203cca g     F .text	0000000000000012 strcpy
+ffffffffc0208000 g       .data	0000000000000000 boot_page_table_sv39
+ffffffffc0200000 g       .text	0000000000000000 kern_entry
+ffffffffc0200302 g     F .text	0000000000000010 mon_backtrace
+ffffffffc0201ff8 g     F .text	00000000000000c0 page_insert
+ffffffffc02037e2 g     F .text	0000000000000032 wakeup_proc
+ffffffffc0200ae0 g     F .text	0000000000000062 print_trapframe
+ffffffffc020392c g     F .text	0000000000000348 vprintfmt
+ffffffffc0201ee8 g     F .text	0000000000000054 get_page
+ffffffffc0200cec g       .text	0000000000000000 __alltraps
+ffffffffc020052a g     F .text	000000000000003c cons_getc
+ffffffffc0200276 g     F .text	000000000000001c print_stackframe
+ffffffffc0200da2 g       .text	0000000000000000 forkrets
+ffffffffc0203308 g     F .text	0000000000000234 do_fork
+ffffffffc020353c g     F .text	000000000000004c kernel_thread
+ffffffffc020d4e0 g     O .bss	0000000000000008 idleproc
+ffffffffc02001a4 g     F .text	0000000000000034 cprintf
+ffffffffc020d458 g     O .bss	0000000000000010 proc_list
+ffffffffc0202eac g     F .text	0000000000000346 vmm_init
+ffffffffc02031f2 g       .text	0000000000000000 kernel_thread_entry
+ffffffffc0203d60 g     F .text	0000000000000018 memcpy
+ffffffffc0201af0 g     F .text	00000000000000f6 kfree
+ffffffffc02000a6 g     F .text	00000000000000c4 readline
+ffffffffc020004a g     F .text	000000000000005c kern_init
+ffffffffc0201c40 g     F .text	0000000000000040 free_pages
+ffffffffc0209030 g       .sdata	0000000000000000 edata
+ffffffffc02004f4 g     F .text	0000000000000002 cons_init
+ffffffffc020d498 g     O .bss	0000000000000008 pmm_manager
+ffffffffc0209008 g       .data	0000000000000000 boot_dtb
+ffffffffc0200442 g     F .text	0000000000000060 __panic
+ffffffffc02004da g     F .text	000000000000001a clock_set_next_event
+ffffffffc020d4d8 g     O .bss	0000000000000008 initproc
+ffffffffc020d4b0 g     O .bss	0000000000000008 va_pa_offset
+ffffffffc0203814 g     F .text	0000000000000094 schedule
+ffffffffc0203778 g       .text	0000000000000000 switch_to
+ffffffffc0203cae g     F .text	000000000000001c strnlen
+ffffffffc0205520 g     O .rodata	0000000000000038 default_pmm_manager
+ffffffffc02008f8 g     F .text	000000000000001a idt_init
+ffffffffc0200000 g       *ABS*	0000000000000000 BASE_ADDRESS
+ffffffffc02008d6 g     F .text	000000000000000a get_memory_base
+ffffffffc0202d9c g     F .text	0000000000000040 find_vma
+ffffffffc020d4b8 g     O .bss	0000000000000008 npage
+ffffffffc0200312 g     F .text	0000000000000130 kmonitor
+ffffffffc02004a2 g     F .text	0000000000000038 clock_init
+ffffffffc0201c80 g     F .text	000000000000003a nr_free_pages
+ffffffffc020d4e8 g       .bss	0000000000000000 end
+ffffffffc02032ec g     F .text	000000000000001c do_exit
+ffffffffc02004f6 g     F .text	0000000000000034 cons_putc
+ffffffffc0203d78 g       .text	0000000000000000 etext
+ffffffffc02008ea g     F .text	0000000000000006 intr_enable
+ffffffffc0203d14 g     F .text	0000000000000028 strncmp
+ffffffffc0201cba g     F .text	000000000000022e get_pte
+ffffffffc020d4d0 g     O .bss	0000000000000008 current
+ffffffffc0201a0c g     F .text	0000000000000020 kmalloc_init
+ffffffffc02008f0 g     F .text	0000000000000006 intr_disable
+ffffffffc0200912 g     F .text	00000000000001ce print_regs
+ffffffffc02008e0 g     F .text	000000000000000a get_memory_size
+ffffffffc02036f2 g     F .text	000000000000001a cpu_idle
+ffffffffc02001d8 g     F .text	0000000000000002 cputchar
+ffffffffc0203d4e g     F .text	0000000000000012 memset
+ffffffffc020d4a0 g     O .bss	0000000000000008 boot_pgdir_pa
+ffffffffc02001da g     F .text	0000000000000010 getchar
+ffffffffc0201f3c g     F .text	00000000000000bc page_remove
+ffffffffc02038a8 g     F .text	0000000000000016 hash32
+ffffffffc0203c74 g     F .text	0000000000000020 printfmt
+ffffffffc020d4a8 g     O .bss	0000000000000008 boot_pgdir_va
+ffffffffc0200ce0 g     F .text	000000000000000c trap
+ffffffffc0203cdc g     F .text	0000000000000038 strcmp
+ffffffffc0200b42 g     F .text	00000000000000b2 interrupt_handler
+ffffffffc0202ddc g     F .text	00000000000000d0 insert_vma_struct
+ffffffffc02008f6 g     F .text	0000000000000002 pic_init
+ffffffffc02020b8 g     F .text	0000000000000cc0 pmm_init
+ffffffffc020d478 g     O .bss	0000000000000008 ticks
+ffffffffc0201c02 g     F .text	000000000000003e alloc_pages
+ffffffffc0200d54 g       .text	0000000000000000 __trapret
+ffffffffc0200184 g     F .text	0000000000000020 vcprintf
+ffffffffc0208000 g       .data	0000000000000000 bootstacktop
+ffffffffc0201a2c g     F .text	00000000000000c4 kmalloc
+ffffffffc020370c g     F .text	000000000000006c proc_run
+ffffffffc0206000 g       .data	0000000000000000 bootstack
+ffffffffc02056e8 g     O .srodata.nbase	0000000000000008 nbase
+ffffffffc0203c94 g     F .text	000000000000001a strlen
+ffffffffc0200566 g     F .text	0000000000000370 dtb_init
+ffffffffc0203d3c g     F .text	0000000000000012 strchr
+ffffffffc02002f2 g     F .text	0000000000000010 mon_kerninfo
+ffffffffc020d4c0 g     O .bss	0000000000000008 pages
+ffffffffc0209000 g       .data	0000000000000000 boot_hartid
+ffffffffc0203588 g     F .text	000000000000016a proc_init
+ffffffffc0200292 g     F .text	0000000000000060 mon_help
+ffffffffc0200bf4 g     F .text	00000000000000ec exception_handler
+
+
