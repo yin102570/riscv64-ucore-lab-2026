@@ -251,7 +251,7 @@ pte_t *get_pte(pde_t *pgdir, uintptr_t la, bool create)
         set_page_ref(page, 1);
         uintptr_t pa = page2pa(page);
         memset(KADDR(pa), 0, PGSIZE);
-        *pdep1 = pte_create(page2ppn(page), PTE_U | PTE_V);
+        *pdep1 = ptd_create(page2ppn(page));
     }
     pde_t *pdep0 = &((pte_t *)KADDR(PDE_ADDR(*pdep1)))[PDX0(la)];
     if (!(*pdep0 & PTE_V))
@@ -264,7 +264,7 @@ pte_t *get_pte(pde_t *pgdir, uintptr_t la, bool create)
         set_page_ref(page, 1);
         uintptr_t pa = page2pa(page);
         memset(KADDR(pa), 0, PGSIZE);
-        *pdep0 = pte_create(page2ppn(page), PTE_U | PTE_V);
+        *pdep0 = ptd_create(page2ppn(page));
     }
     return &((pte_t *)KADDR(PDE_ADDR(*pdep0)))[PTX(la)];
 }
@@ -323,11 +323,11 @@ void page_remove(pde_t *pgdir, uintptr_t la)
     struct Page *page = pte2page(*ptep);
     assert(page_ref(page) > 0);
     *ptep = 0;
+    tlb_invalidate(pgdir, la);
     if (page_ref_dec(page) == 0)
     {
         free_page(page);
     }
-    tlb_invalidate(pgdir, la);
 }
 
 // invalidate a TLB entry, but only if the page tables being
@@ -336,7 +336,7 @@ void tlb_invalidate(pde_t *pgdir, uintptr_t la)
 {
     // flush_tlb();
     // The flush_tlb flush the entire TLB, is there any better way?
-    asm volatile("sfence.vma %0" : : "r"(la));
+    asm volatile("sfence.vma" ::: "memory");
 }
 
 static void check_alloc_page(void)
@@ -372,11 +372,11 @@ static void check_pgdir(void)
     assert(get_pte(boot_pgdir_va, PGSIZE, 0) == ptep);
 
     p2 = alloc_page();
-    assert(page_insert(boot_pgdir_va, p2, PGSIZE, PTE_U | PTE_W) == 0);
+    assert(page_insert(boot_pgdir_va, p2, PGSIZE, PTE_U | PTE_R | PTE_W) == 0);
     assert((ptep = get_pte(boot_pgdir_va, PGSIZE, 0)) != NULL);
     assert(*ptep & PTE_U);
     assert(*ptep & PTE_W);
-    assert(boot_pgdir_va[0] & PTE_U);
+    assert((boot_pgdir_va[0] & PTE_U) == 0);
     assert(page_ref(p2) == 1);
 
     assert(page_insert(boot_pgdir_va, p1, PGSIZE, 0) == 0);
