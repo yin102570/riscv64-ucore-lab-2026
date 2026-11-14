@@ -87,7 +87,9 @@ void test_t4_tlb_consistency(void) {
     assert(*(char *)(page2kva(p1) + PGOFF(la)) == 'A');
 
     page_remove(boot_pgdir_va, la);
-    page_ref_dec(p1); /* 释放测试引用 */
+    if (page_ref_dec(p1) == 0) {
+        free_page(p1); /* 引用归零才真正释放，避免测试泄漏页面 */
+    }
     boundary_pass("T4");
 }
 

@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""临时副本中注入 T1-T4 边界测试并运行。不触碰实际代码。"""
-import os, re, shutil, subprocess
+"""临时副本中注入 T1-T4 边界测试并运行。不触碰实际代码。
 
-CODE = '/home/sqs/ucore-lab/lab4/code'
+用法：在 lab4 仓库内执行 python3 report/tests/run_boundary.py
+脚本用 Path(__file__) 定位仓库目录和测试源码，不依赖机器绝对路径。
+"""
+import os, re, shutil, subprocess
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent          # lab4/report/tests/
+CODE = SCRIPT_DIR.parent.parent / 'code'              # lab4/code/
 ROOT = '/tmp/lab4_boundary'
-TEST_SRC = '/mnt/c/Users/SQS/Desktop/os/test_boundary.c'
+TEST_SRC = SCRIPT_DIR / 'test_boundary_t1t4.c'
 
 # 1. 复制代码树
 if os.path.exists(ROOT):
@@ -27,17 +33,12 @@ open(mk_path, 'w').write(mk)
 # 4. pmm.c 注入声明 + 调用
 pmm_path = ROOT + '/kern/mm/pmm.c'
 pmm = open(pmm_path).read()
-
-# 声明
 assert 'void test_lab4_boundary(void);' not in pmm
 pmm = pmm.replace('void pmm_init(void)',
                   'void test_lab4_boundary(void);\n\nvoid pmm_init(void)', 1)
-
-# 调用（pmm_init 末尾，kmalloc_init 之后）
 old = '    kmalloc_init();\n}'
 assert pmm.count(old) == 1, 'kmalloc_init anchor'
 pmm = pmm.replace(old, '    kmalloc_init();\n    test_lab4_boundary();\n}', 1)
-
 open(pmm_path, 'w').write(pmm)
 
 print('injection done')
@@ -56,5 +57,3 @@ r = subprocess.run(['timeout', '15', 'qemu-system-riscv64', '-machine', 'virt',
                    cwd=ROOT, capture_output=True, text=True)
 print('=== QEMU OUTPUT ===')
 print(r.stdout)
-print('=== STDERR (tail) ===')
-print(r.stderr[-500:])

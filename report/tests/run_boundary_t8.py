@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""临时副本中注入 T8 失败清理测试 + 故障注入，运行。不触碰实际代码。"""
-import os, re, shutil, subprocess
+"""临时副本中注入 T8 失败清理测试 + 故障注入，运行。不触碰实际代码。
 
-CODE = '/home/sqs/ucore-lab/lab4/code'
+用法：在 lab4 仓库内执行 python3 report/tests/run_boundary_t8.py
+脚本用 Path(__file__) 定位仓库目录和测试源码，不依赖机器绝对路径。
+"""
+import os, re, shutil, subprocess
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent          # lab4/report/tests/
+CODE = SCRIPT_DIR.parent.parent / 'code'              # lab4/code/
 ROOT = '/tmp/lab4_boundary_t8'
-TEST_SRC = '/mnt/c/Users/SQS/Desktop/os/test_boundary_t8.c'
+TEST_SRC = SCRIPT_DIR / 'test_boundary_t8.c'
 
 if os.path.exists(ROOT):
     shutil.rmtree(ROOT)
