@@ -58,9 +58,14 @@ bootstacktop:
 boot_page_table_sv39:
     # 0xffffffff_c0000000 map to 0x80000000 (1G)
     # 前 511 个页表项均设置为 0 ，因此 V=0 ，意味着是空的(unmapped)
-    .zero 8 * 511
+    # ---- lab3 依赖回填：启动期低地址恒等映射（源自 lab3 entry.S）----
+    # 只映射高半区在本机跑不通：csrw satp 生效后 CPU 紧接着取的指令 PC 仍是
+    # 低地址，第 2 次取指就 instruction page fault。故在项 2 补低 1 GiB 恒等映射。
+    .zero 8 * 2                        # 项 0、1：V=0
+    .quad (0x80000 << 10) | 0xcf       # 项 2：低 1 GiB 恒等映射
+    .zero 8 * 508                      # 项 3 ~ 510：V=0
     # 设置最后一个页表项，PPN=0x80000，标志位 VRWXAD 均为 1
-    .quad (0x80000 << 10) | 0xcf # VRWXAD
+    .quad (0x80000 << 10) | 0xcf       # 项 511：高半区 1 GiB 映射
 
     .global boot_hartid
 boot_hartid:
