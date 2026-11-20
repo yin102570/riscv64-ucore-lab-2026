@@ -210,6 +210,43 @@ initproc 首次被调度后打印 Hello world，且 [Test Schedule] PASS。
 
 结果保存为 `report/logs/run/` 下原始日志；本文档不预填任何“已通过”结论。
 
-## 7. 实现记录（待实现后回填）
+## 7. 实现记录
 
-按 §5.3 的五行格式记录实际 bug（现象/根因/修复/回归/反思），重点落在 `status` 位、`switch_to` 首次恢复链、`gpr.sp` 是否有效、`do_fork` 失败回滚这几类问题上。
+实际修改：`kern/process/proc.c` 的 function2 区域（新增 137 行），未触碰 function3 与模块一。官方测试一次通过，没有产生单独的修复提交；下面记录的是实现时的判断依据，以及已经落到日志和注入输出上的问题。
+
+### 7.1 关键决策
+
+1. `alloc_proc()` 逐字段显式赋值，不用 `memset` 整块清零：`pgdir` 要写 `boot_pgdir_pa`，`list_link`/`hash_link` 要 `list_init()`，整块清零后再补写最容易漏掉链表哨兵。
+2. `pgdir` 存物理地址。`proc_run()` 把它直接写进 `satp`；写成 `boot_pgdir_va` 在初始化阶段看不出问题，切进程后才以取指异常的形式暴露。
+3. `do_fork()` 用 `goto` 做逆序回收：`bad_fork_cleanup_kstack` 先 `put_kstack()`，再落到 `bad_fork_cleanup_proc` 的 `kfree()`，保证每种失败只释放已经拿到的资源。
+4. `get_pid()`、`hash_proc()`、`list_add()`、`nr_process++` 收在同一个 `local_intr_save` 块里。`get_pid()` 扫的就是 `proc_list`，先挂链表再取 PID 会把自己算成冲突源；四步分开还会让故障注入看到半登记的 PCB。
+5. `kernel_thread()` 的 `status` 置 `SPP|SPIE`、清 `SIE`；`copy_thread()` 的 `context.ra` 写 `forkret`、`context.sp` 写 `proc->tf`。首次运行不是直接跳函数，而是借 `sret` 恢复一份预先摆好的 trapframe。
+
+### 7.2 问题记录（现象 / 根因 / 修复 / 回归 / 反思）
+
+1. **`kernel_thread` 形参类型与测试线程不匹配**
+   现象：`make grade` 的构建日志报 `-Wincompatible-pointer-types`，官方测试线程是 `void (*)(void *)`，骨架声明是 `int (*)(void *)`。
+   根因：C 的函数指针是强类型，返回类型不同不能隐式互转。
+   处理：不改内核签名——它要和 `kernel_thread_entry` 的调用约定、后续实验的声明保持一致；也不改官方测试，告警如实留在日志里。
+   回归：30/30，运行行为不受影响。
+   反思：为了消警告去改 ABI 是把成本转嫁给调用方；接口定下来之后，适配应该发生在调用侧。
+
+2. **失败路径上的进程计数**
+   现象：故障注入针对的正是这一处——若 `nr_process++` 与 `list_add()` 分离，失败时会出现"计数已增加、链表没有节点"的半登记状态。
+   根因：`do_fork()` 的资源获取和登记是两个阶段，任意一步单独失败都会破坏 `nr_process` 与 `proc_list` 的一致性。
+   修复：四步合并进同一临界区；失败路径只做 `put_kstack()`/`kfree()`，不回滚链表和计数，因为此时还没挂上去。
+   回归：T8 注入 `alloc_proc`/`setup_kstack` 失败，分别返回 `-E_NO_FREE_PROC`/`-E_NO_MEM`，`nr_process` 不变。
+   反思：创建失败比创建到一半安全；回滚顺序必须与获取顺序相反。
+
+3. **`idleproc` 的 `context` 不能有 `ra`**
+   现象：官方测试断言 `idleproc->context.ra == 0`，而照着 `copy_thread()` 的写法顺手给它一个 `forkret` 是最容易犯的错。
+   根因：`idleproc` 复用当前执行现场，不走 `switch_to` 的首次恢复链；一旦被切回，它会拿一个不是陷阱现场的栈去恢复寄存器。
+   修复：保持 `alloc_proc()` 的清零状态，只补 `pid/state/kstack/need_resched/name`。
+   回归：Process Create PASS。
+   反思：特殊进程的特殊性应该落在字段值上，而不是散在分支里。
+
+### 7.3 验证证据
+
+- `make grade 30/30`：`report/logs/run/grade-20261115-0017.log`。
+- 首次运行链：`report/logs/static/gdb-switch.log` 依次命中 `switch_to → forkret → forkrets → kernel_thread_entry`。
+- 失败注入：`report/tests/boundary_summary.md` 的 T8 输出。
