@@ -1,38 +1,38 @@
-# Lab 5 提示词汇总
+# Lab 5 提示词与环境记录
 
-本文件汇总 Lab 5 使用过的全部提示词，与 [report.md](./report.md) 第四部分“最终提示词 / 实现迭代过程”一一对应。
-
-## 环境
+## 1. 工具与环境
 
 | 项目 | 内容 |
-|------|------|
+|---|---|
 | AI 工具 | dsh（DeepSeek Harness）Web 界面 |
 | 底层模型 | DeepSeek-V4-Flash |
 | 工作区 | `~/ucore-lab/lab5`（WSL 原生路径） |
-| 运行环境 | WSL2 Ubuntu 22.04 + `/opt/riscv` 交叉工具链 + qemu-system-riscv64 7.0.0 |
+| 运行环境 | WSL2 Ubuntu 22.04、riscv64-unknown-elf 交叉工具链、qemu-system-riscv64 7.0.0、OpenSBI `fw_dynamic`、gdb-multiarch |
+| 代码基线 | 本组 Lab 4 完成版（`lab4/code`），未使用往届代码 |
 
-## 记录格式
+## 2. 提示词归档
 
-每完成一次有效迭代追加一条，全文件保持同一顺序（时间正序）。
+Lab 5 的完整提示词按模块归档，正文不在此重复，避免同一段 prompt 出现两份、修改后不同步：
 
-### <模块 / 练习名> · 迭代 <序号>
+- [prompts/module1.md](./prompts/module1.md)：U/S 陷阱入口与返回、系统调用 ABI、表驱动分发、9 个 `sys_*`、用户指针检查、`sys_pgdir`。
+- [prompts/module2.md](./prompts/module2.md)：`alloc_proc`、`kernel_thread`、`load_icode`、`kernel_execve`、用户库与链接脚本。
 
-**提示词**
+每份文件都包含四部分：问题边界、spec（不变量与失败路径）、最终交给 AI 的 prompt 原文、AI 生成代码暴露的 bug 与修正过程。模块三、模块四的提示词由对应负责人按同一模板补充。
+
+## 3. 记录约定
+
+后续迭代仍沿用统一格式，时间正序追加到对应模块文件末尾：
 
 ```text
-<完整粘贴该次发给 AI 的提示词>
+### <模块 / 练习名> · 迭代 <序号>
+提示词：<完整原文>
+结果：<一次通过 / 报错摘要 / 人工修正点>
+下一步调整：<改了 prompt 的哪一部分，为什么>
+产物：<改动文件>
 ```
 
-**结果**：<一次通过 / 报错信息摘要 / 需要人工修正的点>
+## 4. 运行与静态记录位置
 
-**下一步调整**：<针对问题修改了提示词的哪一部分，为什么这样改>
-
-**产物**：<改动的文件，例如 kern/init/init.c>
-
-**截图**：<对应的 images/ 文件名，如有>
-
----
-
-## 记录
-
-（从下一次向 dsh 下达任务开始，在这里逐条追加）
+- `report/logs/runtime/`：QEMU 串口输出、`make grade` 结果、GDB 会话记录，由宋秋实统一归档。
+- `report/logs/static/`：`objdump`、`readelf`、链接脚本检查等静态证据。
+- `report/images/`：报告引用的截图，文件名与正文一一对应。
