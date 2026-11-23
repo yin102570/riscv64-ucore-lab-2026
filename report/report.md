@@ -105,7 +105,7 @@ Lab4 的进程调度依赖物理内存管理和陷阱处理，但骨架只给了
 | Challenge 1 | 宏展开、`SIE` 读写、嵌套归还、与自旋锁的边界 | 只读不改；必须给出 `schedule -> proc_run` 的嵌套状态 | `challenge1.md` |
 | Challenge 2 | 三种模式的级数和位宽、`get_pte()` 两段分配、合并与拆分 | 先按宏反推，不信注释；只分析，不改评分路径 | `challenge2.md` |
 
-提示词不是一次成型的。模块一第一版没有区分同页和异页，模块二第一版把 `idleproc` 当普通线程处理，Challenge 2 第一版直接相信了 `mmu.h` 的旧注释。我们都是在对照骨架接口、官方测试断言和实际宏定义之后，把约束补进下一版 prompt。具体偏差见各记录文件的实现记录一节。
+提示词不是一次成型的。模块一最容易漏的是同页和异页的区分，模块二最容易把 `idleproc` 当普通线程处理，Challenge 2 最容易直接相信 `mmu.h` 的旧注释。我们都是在对照骨架接口、官方测试断言和实际宏定义之后，把这些约束补进 prompt。具体偏差见各记录文件的实现记录一节。
 
 ### Challenge 1：`local_intr_save/restore` 如何实现开关中断（主笔：兰雨杉）
 
@@ -237,3 +237,9 @@ T1–T8 边界测试结论见 [tests/boundary_summary.md](tests/boundary_summary
 | `idleproc` 的 `context.ra` | 官方断言 `idleproc->context.ra == 0` 失败 | 照 `copy_thread` 给它写了 `forkret` | 保持 `alloc_proc` 的清零状态，只补必要字段 | T5 |
 | `satp` 模式 | 照抄 `lsatp()` 会把 CPU 切进 Sv32，取指异常 | 骨架 `lsatp()` 写死 SATP32，实际页表是 Sv39 | `proc_run` 直接写 Sv39 编码 `0x8000000000000000` | 30/30、GDB |
 | `switch_to` 字段偏移 | 恢复出的栈或返回地址错位 | 汇编存取顺序和 `struct context` 不一致 | 按 `ra, sp, s0~s11` 顺序存取，反汇编核对偏移 | T7 |
+
+### 小组讨论与分歧
+
+1. `page_remove` 是否回收空页表页：一种意见认为删掉叶映射后应立即释放空表，另一种意见认为 `check_pgdir()` 仍断言 `boot_pgdir_va[0]` 指向的页表页引用为 1，回收会破坏骨架生命周期。我们最后选择不回收，把页表页生命周期留给更高层。
+2. `lsatp()` 是否修：它写死 SATP32，和 Sv39 页表不一致。直接在 `libs/riscv.h` 改会影响所有潜在调用点，而当前没有调用点；我们选择在 `proc_run` 写明确的 Sv39 编码，并在报告中记录这个遗留接口，后续复用时必须先修。
+3. `get_pte()` 是否拆：拆分在接口和失败回滚上更干净，但会牵动 `page_insert`、`page_remove`、`get_page` 和评分路径；本实验保留合并接口，把拆分作为设计建议而不是当场重构。
