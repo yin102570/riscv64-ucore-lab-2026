@@ -50,7 +50,7 @@ void page_remove(pde_t *pgdir, uintptr_t la);
 
 **明确不做的事**
 
-- 不在这里回收空的二级页表页。`check_pgdir()` 在删除两个叶映射后仍断言二级页表页引用为 1，说明页表页生命周期由更高层管理；顺手释放空页表会破坏既有语义。
+- 不在这里回收空的中间页表页。`check_pgdir()` 在删除两个叶映射后仍断言 `boot_pgdir_va[0]` 指向的页表页引用为 1，说明页表页生命周期由更高层管理；顺手释放空页表会破坏既有语义。
 - 不把“删除一个叶映射”扩大成 `mm_destroy()` 或进程地址空间销毁。
 
 ## 3. 必须保持的不变量
@@ -104,7 +104,7 @@ void page_remove(pde_t *pgdir, uintptr_t la);
 3. 同页快速路径是否更新 `*ptep` 的权限，而不是提前返回旧权限。
 4. 异页路径是否调用 `page_remove()`，且之后只对新页增加一次引用。
 5. `page_remove()` 是否先判断 `ptep == NULL` 和 `PTE_V`，再调用 `pte2page()`。
-6. 是否错误地把空二级页表 `free_page()`；本实验不应回收。
+6. 是否错误地把空的中间页表页 `free_page()`；本实验不应回收。
 7. 两个函数是否都调用了 `tlb_invalidate()`。
 8. 学号是否已写入 `//LAB4 function1 2410665`，且没有残留 `YOUR CODE`。
 
@@ -138,7 +138,7 @@ void page_remove(pde_t *pgdir, uintptr_t la);
 
 1. `get_pte(pgdir, la, 0)` 返回 `NULL` 或叶项无 `PTE_V` 时直接返回，保证未映射地址和重复删除都是幂等操作。
 2. 有效映射先取出 `Page`，断言引用计数大于 0，再清空叶项、减引用；归零时调用 `free_page()`。
-3. 不释放空的中间页表页。`check_pgdir()` 在删除叶映射后仍检查二级页表页引用为 1，释放 PT 会破坏骨架既有生命周期约定。
+3. 不释放空的中间页表页。`check_pgdir()` 在删除叶映射后仍检查 `boot_pgdir_va[0]` 指向的页表页引用为 1，释放 PT 会破坏骨架既有生命周期约定。
 4. 删除后调用 `tlb_invalidate(pgdir, la)`，防止 CPU 继续使用旧翻译。
 
 ### 7.3 已完成的静态核对

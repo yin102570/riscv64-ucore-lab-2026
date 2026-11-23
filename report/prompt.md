@@ -8,6 +8,7 @@
 | 功能模块二：进程创建与初始化 | [prompts/module2.md](prompts/module2.md) | 宋秋实（2410749） |
 | 功能模块三：进程调度与上下文切换 | [prompts/module3.md](prompts/module3.md) | 兰雨杉（2412090） |
 | Challenge 1：开关中断原理 | [prompts/challenge1.md](prompts/challenge1.md) | 兰雨杉（2412090） |
+| Challenge 2：Sv32/Sv39/Sv48 与 `get_pte()` | [prompts/challenge2.md](prompts/challenge2.md) | 殷佳仪（2410665） |
 | 依赖移植说明（Lab2/Lab3 回填） | [prompts/backfill.md](prompts/backfill.md) | 兰雨杉（2412090） |
 
 ## 使用约定
