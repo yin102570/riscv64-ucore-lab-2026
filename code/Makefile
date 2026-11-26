@@ -159,10 +159,10 @@ obj/user/%.o: user/%.c
 	@echo + cc $<
 	$(V)$(CC) $(USER_CFLAGS) -c $< -o $@
 
-obj/user/%.out: obj/user/%.o $(ULIB_OBJS) obj/printfmt.o obj/string.o tools/user.ld
+obj/user/%.out: obj/user/%.o $(ULIB_OBJS) obj/libs/printfmt.o obj/libs/string.o tools/user.ld
 	@mkdir -p $(dir $@)
 	@echo + ld $@
-	$(V)$(LD) $(USER_LDFLAGS) -T tools/user.ld -o $@ $< $(ULIB_OBJS) obj/printfmt.o obj/string.o
+	$(V)$(LD) $(USER_LDFLAGS) -T tools/user.ld -o $@ $< $(ULIB_OBJS) obj/libs/printfmt.o obj/libs/string.o
 
 obj/__user_%.out: obj/user/%.out
 	$(V)$(COPY) $< $@

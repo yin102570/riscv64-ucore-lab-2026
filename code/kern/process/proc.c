@@ -277,7 +277,7 @@ init_main(void *arg)
 {
     (void)arg;
     int pid;
-    if ((pid = kernel_thread(user_main, NULL, 0)) != 0)
+    if ((pid = kernel_thread(user_main, NULL, 0)) <= 0)
     {
         panic("create user_main failed.\n");
     }
@@ -329,39 +329,37 @@ static int
 user_main(void *arg)
 {
     (void)arg;
+    int ret;
 #ifdef TEST
-    KERNEL_EXECVE2(TEST, TESTSTART, TESTSIZE);
+    ret = KERNEL_EXECVE2(TEST, TESTSTART, TESTSIZE);
 #else
-    KERNEL_EXECVE(exit);
+    ret = KERNEL_EXECVE(exit);
 #endif
+    cprintf("kernel_execve failed: %d\n", ret);
     panic("user_main execve failed.\n");
 }
 
 /*
- * kernel_execve - enter do_execve through a supervisor ecall.
+ * kernel_execve - replace the current image and drop to U-mode.
  *
- * The ecall gives us a trapframe on the current kernel stack.  load_icode
- * rewrites that frame for U-mode, so the normal __trapret path performs the
- * actual privilege switch.  Calling do_execve directly would return to a
- * kernel thread that has already replaced its address space.
+ * do_execve()/load_icode() rewrite current->tf into a user frame.  We then
+ * reuse forkrets()/__trapret so the normal sret path performs the privilege
+ * change.  An S-mode ecall cannot be used here: on RISC-V it is the SBI
+ * entry into M-mode, not a trap delivered to stvec.
  */
 //LAB5 功能模块二 2410665
 static int
 kernel_execve(const char *name, unsigned char *binary, size_t size)
 {
-    register uintptr_t a0 asm("a0") = SYS_exec;
-    register uintptr_t a1 asm("a1") = (uintptr_t)name;
-    register uintptr_t a2 asm("a2") = strlen(name);
-    register uintptr_t a3 asm("a3") = (uintptr_t)binary;
-    register uintptr_t a4 asm("a4") = size;
-
-    asm volatile("ecall"
-                 : "+r"(a0)
-                 : "r"(a1), "r"(a2), "r"(a3), "r"(a4)
-                 : "memory");
-    return (int)a0;
+    int ret = do_execve(name, strlen(name), binary, size);
+    if (ret == 0) {
+        /* load_icode() has rewritten current->tf for U-mode.  Re-enter the
+         * trap return path so sret performs the privilege change; a normal
+         * function return would leave us executing in S-mode. */
+        forkrets(current->tf);
+    }
+    return ret;
 }
-
 /*
  * do_execve - replace the current address space with a freshly loaded
  * image.  The old mm may be shared with other threads, so it is released

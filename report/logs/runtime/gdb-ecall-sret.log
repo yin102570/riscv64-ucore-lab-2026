@@ -1,0 +1,27 @@
+0x0000000000001000 in ?? ()
+add symbol table from file "obj/user/exit.out"
+Breakpoint 1 at 0xffffffffc0203dd4: file kern/syscall/syscall.c, line 116.
+
+Breakpoint 1, syscall () at kern/syscall/syscall.c:116
+116	    struct trapframe *tf = current->tf;
+== enter kernel syscall ==
+nr=30 a1=0x49 a2=0x0 epc=0x8011ac
+sepc           0x8011a8	8393128
+sstatus        0x8000000200046020	-9223372028264554464
+sscratch       0x0	0
+sp             0xffffffffc041fec0	0xffffffffc041fec0
+trap (tf=0xffffffffc041fee0) at kern/trap/trap.c:219
+219	    if (trap_in_kernel(tf)) {
+== after syscall returns ==
+ret_in_a0=0 epc_after=0x8011ac
+Breakpoint 2 at 0xffffffffc0200e0a: file kern/trap/trapentry.S, line 131.
+
+Breakpoint 2, __trapret () at kern/trap/trapentry.S:131
+131	    sret
+== immediately before sret ==
+sepc           0x8011ac	8393132
+sstatus        0x8000000200046020	-9223372028264554464
+sscratch       0xffffffffc0420000	-1069416448
+sp             0x7ffffe90	0x7ffffe90
+user_return_value_a0=0
+[Inferior 1 (process 1) detached]

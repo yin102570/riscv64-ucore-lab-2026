@@ -1,0 +1,109 @@
+===== user/libs/syscall.c: syscall =====
+0000000000801192 <syscall>:
+  801192:	715d                	addi	sp,sp,-80
+  801194:	04010313          	addi	t1,sp,64
+  801198:	f032                	sd	a2,32(sp)
+  80119a:	f436                	sd	a3,40(sp)
+  80119c:	f83a                	sd	a4,48(sp)
+  80119e:	fc3e                	sd	a5,56(sp)
+  8011a0:	ec2e                	sd	a1,24(sp)
+  8011a2:	e0c2                	sd	a6,64(sp)
+  8011a4:	e4c6                	sd	a7,72(sp)
+  8011a6:	e41a                	sd	t1,8(sp)
+  8011a8:	00000073          	ecall
+  8011ac:	2501                	sext.w	a0,a0
+  8011ae:	6161                	addi	sp,sp,80
+  8011b0:	8082                	ret
+
+
+===== user/exit.c: main =====
+0000000000801000 <main>:
+  801000:	1101                	addi	sp,sp,-32
+  801002:	00001517          	auipc	a0,0x1
+  801006:	ffe50513          	addi	a0,a0,-2 # 802000 <memcmp+0x6ca>
+  80100a:	ec06                	sd	ra,24(sp)
+  80100c:	e822                	sd	s0,16(sp)
+  80100e:	150000ef          	jal	80115e <cprintf>
+  801012:	234000ef          	jal	801246 <fork>
+  801016:	842a                	mv	s0,a0
+  801018:	c95d                	beqz	a0,8010ce <main+0xce>
+  80101a:	85aa                	mv	a1,a0
+  80101c:	00001517          	auipc	a0,0x1
+  801020:	02c50513          	addi	a0,a0,44 # 802048 <memcmp+0x712>
+  801024:	13a000ef          	jal	80115e <cprintf>
+  801028:	0c805c63          	blez	s0,801100 <main+0x100>
+  80102c:	00001517          	auipc	a0,0x1
+  801030:	07c50513          	addi	a0,a0,124 # 8020a8 <memcmp+0x772>
+  801034:	12a000ef          	jal	80115e <cprintf>
+  801038:	006c                	addi	a1,sp,12
+  80103a:	8522                	mv	a0,s0
+  80103c:	212000ef          	jal	80124e <waitpid>
+  801040:	e901                	bnez	a0,801050 <main+0x50>
+  801042:	4732                	lw	a4,12(sp)
+  801044:	00002797          	auipc	a5,0x2
+  801048:	fbc7a783          	lw	a5,-68(a5) # 803000 <magic>
+  80104c:	02f70463          	beq	a4,a5,801074 <main+0x74>
+  801050:	46dd                	li	a3,23
+  801052:	00001617          	auipc	a2,0x1
+  801056:	01e60613          	addi	a2,a2,30 # 802070 <memcmp+0x73a>
+  80105a:	00001597          	auipc	a1,0x1
+  80105e:	06e58593          	addi	a1,a1,110 # 8020c8 <memcmp+0x792>
+  801062:	00001517          	auipc	a0,0x1
+  801066:	02650513          	addi	a0,a0,38 # 802088 <memcmp+0x752>
+  80106a:	0f4000ef          	jal	80115e <cprintf>
+  80106e:	557d                	li	a0,-1
+  801070:	1c0000ef          	jal	801230 <exit>
+  801074:	006c                	addi	a1,sp,12
+  801076:	8522                	mv	a0,s0
+  801078:	1d6000ef          	jal	80124e <waitpid>
+  80107c:	c509                	beqz	a0,801086 <main+0x86>
+  80107e:	4501                	li	a0,0
+  801080:	1c8000ef          	jal	801248 <wait>
+  801084:	e11d                	bnez	a0,8010aa <main+0xaa>
+  801086:	46e1                	li	a3,24
+  801088:	00001617          	auipc	a2,0x1
+  80108c:	fe860613          	addi	a2,a2,-24 # 802070 <memcmp+0x73a>
+  801090:	00001597          	auipc	a1,0x1
+  801094:	06858593          	addi	a1,a1,104 # 8020f8 <memcmp+0x7c2>
+  801098:	00001517          	auipc	a0,0x1
+  80109c:	ff050513          	addi	a0,a0,-16 # 802088 <memcmp+0x752>
+  8010a0:	0be000ef          	jal	80115e <cprintf>
+  8010a4:	557d                	li	a0,-1
+  8010a6:	18a000ef          	jal	801230 <exit>
+  8010aa:	85a2                	mv	a1,s0
+  8010ac:	00001517          	auipc	a0,0x1
+  8010b0:	07c50513          	addi	a0,a0,124 # 802128 <memcmp+0x7f2>
+  8010b4:	0aa000ef          	jal	80115e <cprintf>
+  8010b8:	00001517          	auipc	a0,0x1
+  8010bc:	08050513          	addi	a0,a0,128 # 802138 <memcmp+0x802>
+  8010c0:	09e000ef          	jal	80115e <cprintf>
+  8010c4:	60e2                	ld	ra,24(sp)
+  8010c6:	6442                	ld	s0,16(sp)
+  8010c8:	4501                	li	a0,0
+  8010ca:	6105                	addi	sp,sp,32
+  8010cc:	8082                	ret
+  8010ce:	00001517          	auipc	a0,0x1
+  8010d2:	f6250513          	addi	a0,a0,-158 # 802030 <memcmp+0x6fa>
+  8010d6:	088000ef          	jal	80115e <cprintf>
+  8010da:	176000ef          	jal	801250 <yield>
+  8010de:	172000ef          	jal	801250 <yield>
+  8010e2:	16e000ef          	jal	801250 <yield>
+  8010e6:	00002517          	auipc	a0,0x2
+  8010ea:	f1a52503          	lw	a0,-230(a0) # 803000 <magic>
+  8010ee:	142000ef          	jal	801230 <exit>
+  8010f2:	4581                	li	a1,0
+  8010f4:	00001517          	auipc	a0,0x1
+  8010f8:	f5450513          	addi	a0,a0,-172 # 802048 <memcmp+0x712>
+  8010fc:	062000ef          	jal	80115e <cprintf>
+  801100:	46d1                	li	a3,20
+  801102:	00001617          	auipc	a2,0x1
+  801106:	f6e60613          	addi	a2,a2,-146 # 802070 <memcmp+0x73a>
+  80110a:	00001597          	auipc	a1,0x1
+  80110e:	f7658593          	addi	a1,a1,-138 # 802080 <memcmp+0x74a>
+  801112:	00001517          	auipc	a0,0x1
+  801116:	f7650513          	addi	a0,a0,-138 # 802088 <memcmp+0x752>
+  80111a:	044000ef          	jal	80115e <cprintf>
+  80111e:	557d                	li	a0,-1
+  801120:	110000ef          	jal	801230 <exit>
+  801124:	b721                	j	80102c <main+0x2c>
+

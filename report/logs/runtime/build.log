@@ -1,0 +1,120 @@
++ cc libs/printfmt.c
++ cc libs/string.c
++ cc user/badarg.c
++ cc user/libs/stdio.c
++ cc user/libs/ulib.c
++ cc user/libs/syscall.c
++ as user/libs/initcode.S
++ cc user/badsegment.c
++ cc user/cowtest.c
++ cc user/exit.c
++ cc user/faultread.c
++ cc user/faultreadkernel.c
++ cc user/forktest.c
++ cc user/forktree.c
++ cc user/hello.c
++ cc user/pgdir.c
++ cc user/spin.c
++ cc user/testbss.c
++ cc kern/init/entry.S
++ cc user/waitkill.c
++ cc kern/init/init.c
++ cc user/yield.c
++ cc kern/libs/readline.c
++ cc kern/libs/stdio.c
++ cc kern/debug/kdebug.c
++ cc kern/debug/kmonitor.c
++ cc kern/debug/panic.c
++ cc kern/driver/clock.c
++ cc kern/driver/console.c
++ cc kern/driver/dtb.c
++ cc kern/driver/intr.c
++ cc kern/driver/picirq.c
++ cc kern/trap/trap.c
++ cc kern/trap/trapentry.S
++ cc kern/mm/default_pmm.c
++ cc kern/mm/kmalloc.c
++ cc kern/mm/pmm.c
++ cc kern/mm/vmm.c
++ cc kern/syscall/syscall.c
++ cc kern/process/entry.S
++ cc kern/process/proc.c
++ cc kern/process/switch.S
++ cc kern/schedule/sched.c
++ cc libs/hash.c
++ ld obj/user/badarg.out
++ ld obj/user/badsegment.out
++ ld obj/user/cowtest.out
++ ld obj/user/exit.out
++ ld obj/user/faultread.out
++ ld obj/user/forktest.out
++ ld obj/user/faultreadkernel.out
++ ld obj/user/forktree.out
++ ld obj/user/hello.out
++ ld obj/user/pgdir.out
++ ld obj/user/spin.out
++ ld obj/user/testbss.out
++ ld obj/user/yield.out
++ ld obj/user/waitkill.out
++ objcopy obj/__user_badarg.out
++ objcopy obj/__user_badsegment.out
++ objcopy obj/__user_cowtest.out
++ objcopy obj/__user_exit.out
++ objcopy obj/__user_faultread.out
++ objcopy obj/__user_faultreadkernel.out
++ objcopy obj/__user_forktest.out
++ objcopy obj/__user_forktree.out
++ objcopy obj/__user_hello.out
++ objcopy obj/__user_pgdir.out
++ objcopy obj/__user_spin.out
++ objcopy obj/__user_testbss.out
++ objcopy obj/__user_yield.out
++ objcopy obj/__user_waitkill.out
++ ld bin/kernel
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.rodata.__warn.str1.8' in file 'obj/kern/debug/panic.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.__warn' in file 'obj/kern/debug/panic.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.is_kernel_panic' in file 'obj/kern/debug/panic.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.kbd_intr' in file 'obj/kern/driver/console.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.serial_intr' in file 'obj/kern/driver/console.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.pic_enable' in file 'obj/kern/driver/picirq.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.trap_in_kernel' in file 'obj/kern/trap/trap.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.slob_init' in file 'obj/kern/mm/kmalloc.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.slob_allocated' in file 'obj/kern/mm/kmalloc.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.kallocated' in file 'obj/kern/mm/kmalloc.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.ksize' in file 'obj/kern/mm/kmalloc.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.copy_range' in file 'obj/kern/mm/pmm.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.rodata.print_vma.str1.8' in file 'obj/kern/mm/vmm.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.print_vma' in file 'obj/kern/mm/vmm.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.rodata.print_mm.str1.8' in file 'obj/kern/mm/vmm.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.print_mm' in file 'obj/kern/mm/vmm.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.vma_create' in file 'obj/kern/mm/vmm.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.mm_unmap' in file 'obj/kern/mm/vmm.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.copy_from_user' in file 'obj/kern/mm/vmm.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.copy_to_user' in file 'obj/kern/mm/vmm.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.set_proc_name' in file 'obj/kern/process/proc.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.get_proc_name' in file 'obj/kern/process/proc.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.find_proc' in file 'obj/kern/process/proc.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.bss.name.2' in file 'obj/kern/process/proc.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.sprintputch' in file 'obj/libs/printfmt.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.snprintf' in file 'obj/libs/printfmt.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.vsnprintf' in file 'obj/libs/printfmt.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.strncpy' in file 'obj/libs/string.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.strfind' in file 'obj/libs/string.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.strtol' in file 'obj/libs/string.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.memmove' in file 'obj/libs/string.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.text.memcmp' in file 'obj/libs/string.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_badarg.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_badsegment.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_cowtest.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_faultread.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_faultreadkernel.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_forktest.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_forktree.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_hello.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_pgdir.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_spin.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_testbss.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_waitkill.out.o'
+/home/asdf1/riscv64-medany/bin/riscv64-unknown-elf-ld: removing unused section '.data' in file 'obj/__user_yield.out.o'
+riscv64-unknown-elf-objcopy bin/kernel --strip-all -O binary bin/ucore.img
+rm obj/user/pgdir.o obj/user/libs/stdio.o obj/user/waitkill.o obj/__user_waitkill.out obj/__user_badarg.out obj/__user_faultread.out obj/user/badsegment.o obj/user/testbss.o obj/user/exit.o obj/__user_faultreadkernel.out obj/__user_exit.out obj/__user_spin.out obj/user/forktest.o obj/user/libs/syscall.o obj/user/forktree.o obj/__user_forktree.out obj/user/cowtest.o obj/__user_yield.out obj/user/faultreadkernel.o obj/user/libs/initcode.o obj/__user_cowtest.out obj/__user_hello.out obj/user/badarg.o obj/__user_badsegment.out obj/user/spin.o obj/__user_pgdir.out obj/user/libs/ulib.o obj/user/yield.o obj/__user_forktest.out obj/user/hello.o obj/__user_testbss.out obj/user/faultread.o

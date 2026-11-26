@@ -205,6 +205,8 @@
 
 #ifndef __ASSEMBLER__
 
+#include <defs.h>
+
 #ifdef __GNUC__
 
 #define read_csr(reg) ({ unsigned long __tmp; \

@@ -117,6 +117,8 @@
     LOAD x2,  2*REGBYTES(sp)     /* sp must be restored last */
     .endm
 
+    /* stvec keeps a 2-bit mode in its low bits; a misaligned entry is read as a reserved mode. */
+    .align 2
     .globl __alltraps
 __alltraps:
     SAVE_ALL

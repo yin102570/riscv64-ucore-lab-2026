@@ -179,12 +179,7 @@ exception_handler(struct trapframe *tf)
         tf->epc += 4;
         syscall();
         break;
-    case CAUSE_SUPERVISOR_ECALL:
-        /* kernel_execve uses this path to obtain a real trapframe; after
-         * load_icode the same frame is rewritten for U-mode. */
-        tf->epc += 4;
-        syscall();
-        break;
+
     case CAUSE_FETCH_PAGE_FAULT:
     case CAUSE_LOAD_PAGE_FAULT:
     case CAUSE_STORE_PAGE_FAULT:
@@ -203,7 +198,7 @@ exception_handler(struct trapframe *tf)
  * trap - the C half of __alltraps.
  *
  * current->tf must describe the frame we are handling: syscall() reads
- * a0..a6 from it and kernel_execve rewrites it into a user frame.  A trap
+ * a0..a5 from it and kernel_execve rewrites it into a user frame.  A trap
  * that returns to S-mode restores the previous pointer; a trap that
  * returns to U-mode keeps the frame that RESTORE_ALL is about to load.
  */

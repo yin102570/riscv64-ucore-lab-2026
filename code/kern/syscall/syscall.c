@@ -12,7 +12,7 @@
 
 /*
  * A system call is just an agreed register convention:
- *   a0 = number, a1..a6 = arguments, a0 = result on return.
+ *   a0 = number, a1..a5 = arguments, a0 = result on return.
  * The trapframe is the only safe place to read or write those registers,
  * because it is what RESTORE_ALL will load before sret.
  */
@@ -54,14 +54,11 @@ sys_exec(uint64_t arg[])
     unsigned char *binary = (unsigned char *)arg[2];
     size_t size = (size_t)arg[3];
 
-    /* kernel_execve() also reaches this function, through a supervisor
-     * ecall, but its pointers live in the kernel image.  Only a real user
-     * caller needs the user-range check. */
-    if (!trap_in_kernel(current->tf)) {
-        if (!user_mem_check(current->mm, (uintptr_t)name, len, 0) ||
-            !user_mem_check(current->mm, (uintptr_t)binary, size, 0)) {
-            return -E_INVAL;
-        }
+    /* sys_exec is only reachable from U-mode; every pointer it receives
+     * must be validated against the caller's own address space. */
+    if (!user_mem_check(current->mm, (uintptr_t)name, len, 0) ||
+        !user_mem_check(current->mm, (uintptr_t)binary, size, 0)) {
+        return -E_INVAL;
     }
     return do_execve(name, len, binary, size);
 }
@@ -119,9 +116,9 @@ syscall(void)
     struct trapframe *tf = current->tf;
     uintptr_t num = tf->gpr.a0;
 
-    uint64_t args[6] = {
+    uint64_t args[5] = {
         tf->gpr.a1, tf->gpr.a2, tf->gpr.a3,
-        tf->gpr.a4, tf->gpr.a5, tf->gpr.a6,
+        tf->gpr.a4, tf->gpr.a5,
     };
 
     int ret = -E_INVAL;

@@ -9,14 +9,6 @@
 | 运行环境 | WSL2 Ubuntu 22.04、riscv64-unknown-elf 交叉工具链、qemu-system-riscv64 7.0.0、OpenSBI `fw_dynamic`、gdb-multiarch |
 | 小组成员 | 2410665 殷佳仪（组长）、2410749 宋秋实、2412090 兰雨杉 |
 
-## 小组分工
-
-| 成员 | 负责内容 |
-|---|---|
-| 2410665 殷佳仪 | 模块一系统调用、模块二首个用户进程、`proc.c` 公共辅助函数、总体架构与报告统稿 |
-| 2410749 宋秋实 | 模块三进程复制、全部构建运行、QEMU/GDB/反汇编、`make grade` 与日志归档 |
-| 2412090 兰雨杉 | 模块四退出与等待、COW Challenge、Lab2/3/4 依赖整理 |
-
 ## 一、实验目的
 
 1. 理解 U 态与 S 态之间的唯一合法入口：`ecall` 进入陷阱、`sret` 返回，以及 `sstatus`、`sepc`、`sscratch` 三个 CSR 在其中的作用。
@@ -43,7 +35,7 @@ Lab2 到 Lab4 的 CPU 始终在内核态运行：内核线程自己创建、自�
 我们按依赖关系分四步，而不是按文件顺序：
 
 1. **先让系统调用能进能出**。用户程序的第一条 `ecall` 就要依赖 `SAVE_ALL/RESTORE_ALL`。如果栈切换和 `epc` 推进不正确，后面的进程创建根本走不到。模块一先建立这条最小闭环，用一个只打印字符的调用验证 U→S→U。
-2. **再让第一个用户进程跑起来**。系统调用只能被已有用户进程调用；第一个用户进程必须由内核线程“扶上马”。模块二用 `kernel_thread` 构造内核线程，用 `kernel_execve` 触发一次 S 态 `ecall`，再由 `load_icode` 改写当前 trapframe，借助同一条 `__trapret` 路径完成特权级下降。
+2. **再让第一个用户进程跑起来**。系统调用只能被已有用户进程调用；第一个用户进程必须由内核线程“扶上马”。模块二用 `kernel_thread` 构造内核线程，用 `kernel_execve` 调用 `do_execve` 换掉地址空间并改写当前 trapframe，再跳到 `forkrets/__trapret`，让 `sret` 完成特权级下降。我们试过 S 态 `ecall`，在 RISC-V 上走不通，原因见模块二。
 3. **然后让进程可以复制**。有了第一个用户进程，`fork` 才有意义。模块三实现 `do_fork/copy_mm/copy_thread`，子进程从 `fork()` 返回 0，父进程得到 PID，两者拥有独立的 `proc_struct`、内核栈和地址空间。
 4. **最后补齐生命周期**。`exit`、`yield`、`kill`、`wait` 让进程树可以收敛：退出者变成僵尸，父进程回收，孤儿重挂到 `initproc`。只有这条链闭合，`init_main` 的断言才可能成立。
 
@@ -57,26 +49,29 @@ Lab2 到 Lab4 的 CPU 始终在内核态运行：内核线程自己创建、自�
 
 #### 核心设计
 
-**栈切换是双向的。** `SAVE_ALL` 用 `csrrw sp, sscratch, sp` 交换用户栈和内核栈。从 U 态进来时 `sscratch` 是内核栈顶，交换后 `sp` 非零，直接在当前内核栈上建帧；从 S 态进来时 `sscratch` 为 0，交换后 `sp` 为 0，必须从 `sscratch` 取回原内核 `sp`。第一次实现只考虑了 U→S，`kernel_execve` 的 S 态 `ecall` 会把栈帧建到地址 0，这是后面模块二才暴露出来的问题。
+**栈切换是双向的。** `SAVE_ALL` 用 `csrrw sp, sscratch, sp` 交换用户栈和内核栈。从 U 态进来时 `sscratch` 是内核栈顶，交换后 `sp` 非零，直接在当前内核栈上建帧；从 S 态进来时 `sscratch` 为 0，交换后 `sp` 为 0，必须从 `sscratch` 取回原内核 `sp`。这条 S→S 分支不是为 `kernel_execve` 准备的：内核里的时钟中断、缺页和非法指令都会走它。如果只写 U→S，内核自身的陷阱就会把栈帧建到地址 0。
 
 **返回方向由 `sstatus.SPP` 决定。** `RESTORE_ALL` 读取保存的 `sstatus`，若 SPP=0（返回用户态），把“本帧之上的内核栈顶”写回 `sscratch`，保证下一次陷阱能从同一位置开始；若 SPP=1（返回内核），保持 `sscratch` 为 0。通用寄存器恢复完后最后恢复 `sp`，否则后续 `LOAD` 会读到用户栈。
 
 **`epc` 只在 `ecall` 分支推进。** 定时器中断和页故障返回时必须重执行被打断的指令，不能加 4。断点和非法指令用指令长度判断，兼容压缩指令。
 
-**系统调用是表驱动的。** `syscall()` 从 `current->tf` 读 `a0` 号和 `a1..a6` 参数，检查调用号小于 `NR_SYSCALLS` 且表项非空，结果写回 `a0`。`current->tf` 必须在进入 `trap()` 时立刻设置，不能等 `exception_handler()` 返回后再设，否则 `syscall()` 读到上一次的旧帧。
+**`stvec` 的入口地址必须 4 字节对齐。** `stvec` 的低两位不是地址的一部分：00 是直接模式，01 是向量模式，10/11 保留。我们的 `__alltraps` 起初落在 `...0d42`，写进 `stvec` 后硬件把它解释成保留模式。用户态第一次 `ecall` 并没有进入陷阱，而是跳回了内核启动地址，串口上反复打印 `DTB Init`，看起来像 QEMU 复位。修复只是在 `__alltraps` 前加 `.align 2`。
 
-**用户指针全部先检查。** `sys_wait` 的 `store` 按写权限检查；`sys_exec` 对用户态调用检查 name 和 binary，对 `kernel_execve` 的内核态调用跳过；`sys_pgdir` 遍历 `current->pgdir`，而不是 boot 页表。
+**系统调用是表驱动的。** `syscall()` 从 `current->tf` 读 `a0` 号和 `a1..a5` 参数，检查调用号小于 `NR_SYSCALLS` 且表项非空，结果写回 `a0`。`current->tf` 必须在进入 `trap()` 时立刻设置，不能等 `exception_handler()` 返回后再设，否则 `syscall()` 读到上一次的旧帧。
+
+**用户指针全部先检查。** `sys_wait` 的 `store` 按写权限检查；`sys_exec` 对 name 和 binary 都按读权限检查，并且只接受用户态调用——`kernel_execve` 不经过 `sys_exec`，而是直接调用 `do_execve`；`sys_pgdir` 遍历 `current->pgdir`，而不是 boot 页表。
 
 完整的 spec、最终提示词和迭代记录见 [prompts/module1.md](prompts/module1.md)。
 
 #### bug 复盘
 
 1. `lock_t` 用 `volatile bool`，而 `amo*.d` 按 32 位原子写，越界踩到相邻字段。改成 `volatile uint_t`，让锁对象宽度与原子指令一致。
-2. 内核态 `ecall` 时 `sscratch` 为 0，`SAVE_ALL` 交换后 `sp=0`，随后 `addi sp, sp, -288` 访问非法地址。加 `bnez` 分支从 `sscratch` 取回原 `sp`。
-3. `tf->epc += 4` 一度写在异常处理公共出口，定时器中断也执行，返回后随机跳过指令。移到两个 `ecall` 分支。
+2. `SAVE_ALL` 最初只有 U→S 一条路。内核态陷阱进来时 `sscratch` 为 0，交换后 `sp=0`，随后 `addi sp, sp, -288` 访问非法地址。加 `bnez` 分支从 `sscratch` 取回原 `sp`，并在保存完通用寄存器后清空 `sscratch`，让嵌套陷阱走内核分支。
+3. `tf->epc += 4` 一度写在异常处理公共出口，定时器中断也执行，返回后随机跳过指令。后来只在 `CAUSE_USER_ECALL` 分支推进。
 4. `sys_wait` 直接写 `*code_store`，用户传内核地址时触发内核页故障 panic。改为先 `user_mem_check(..., 1)`。
 5. `sys_pgdir` 第一版遍历 `boot_pgdir_va`，只能看到内核映射，`pgdir` 测试虽然打印但语义错误。改为 `print_pgdir((pde_t *)KADDR(current->pgdir))`。
 6. `syscall.c` 的整型参数经 `va_arg(ap, uintptr_t)` 读取，但调用点传 `int`，LP64 下会拼进相邻槽。所有 `sys_*` 包装显式转 `(uintptr_t)(intptr_t)`。
+7. `__alltraps` 没有 4 字节对齐，地址是 `...0d42`，`stvec` 的低两位被当成保留模式。现象是用户第一次 `ecall` 后内核重新打印 `DTB Init`；`-d int` 里只有一次 `user_ecall`，紧接着是内核地址上的 `load_page_fault`，很像复位，实际是入口地址错了。加 `.align 2` 后恢复。
 
 ### 模块二：创建并加载第一个用户进程（负责人：殷佳仪）
 
@@ -86,7 +81,7 @@ Lab2 到 Lab4 的 CPU 始终在内核态运行：内核线程自己创建、自�
 
 **`kernel_thread` 构造最小 trapframe。** `s0 = fn`、`s1 = arg`，与 `kernel_thread_entry` 的 `move a0, s1; jalr s0` 对应；`epc` 指向 `kernel_thread_entry`；`status` 置 `SPP|SPIE`、清 `SIE`。新线程第一次被调度时走 `switch_to → forkret → forkrets → __trapret → sret`，用陷阱返回机制把栈上的 trapframe 装回寄存器。
 
-**`kernel_execve` 必须走 S 态 `ecall`。** `do_execve()` 只负责替换地址空间和改写 `current->tf`。如果直接函数调用后返回，CPU 仍在 S 态执行内核线程，`user_main()` 会继续走到 `panic`。走一次 S 态 `ecall` 后，`trap()` 拿到当前内核线程的真实 trapframe，`load_icode()` 把它改写成 U 态现场，`__trapret` 恢复后 `sret` 完成特权级下降。
+**`kernel_execve` 复用陷阱返回，但不经过 S 态 `ecall`。** `do_execve()` 替换地址空间并改写 `current->tf`，随后 `kernel_execve()` 直接调用 `forkrets(current->tf)`，把 `sp` 指向这个 trapframe，跳进 `__trapret`，由 `sret` 完成特权级下降。我们最初按 x86 ucore 的经验让内核线程执行一次 S 态 `ecall`，在 RISC-V 上不成立：S 态 `ecall` 进入的是 SBI（M 态），不会投递给 `stvec`。这个差异必须从平台语义上解释，不能照搬。
 
 **`load_icode` 按 `p_memsz` 建映射，按 `p_filesz` 拷内容。** 每个段先校验 `p_filesz <= p_memsz`、文件偏移不越界、虚拟范围在 `USERBASE..USERTOP`。映射范围用 `p_memsz`，整页清零后再拷文件内容，`.bss` 自然为零。`p_memsz == 0` 的空段直接跳过，否则会生成零长度 VMA。
 
@@ -101,15 +96,16 @@ Lab2 到 Lab4 的 CPU 始终在内核态运行：内核线程自己创建、自�
 1. 只按 `p_filesz` 映射，`.bss` 尾部没有页，`testbss` 读到上一任页主的残留数据。改为按 `p_memsz` 映射并清零。
 2. 链接脚本只有 `.data` 前页对齐，`.text/.rodata` 结束在页中间时，`mm_map` 的 `ROUNDDOWN/ROUNDUP` 让相邻 VMA 重叠，`insert_vma_struct()` 断言。每个段前都加 `ALIGN(0x1000)`。
 3. `p_memsz == 0` 的空段生成零长度 VMA，后续 `find_vma` 和 `exit_mmap` 行为异常。段循环同时跳过空段。
-4. `kernel_execve` 直接调用 `do_execve`，会出现返回 0 但没有任何用户输出的现象：地址空间已经换掉，CPU 却仍在 S 态执行 `user_main`。改为 S 态 `ecall`。
+4. `kernel_execve` 第一版直接调用 `do_execve` 后正常返回，日志里 `ret = 0`，却没有任何用户输出：地址空间已经换掉，CPU 仍停在 S 态执行 `user_main`。第二版照搬 x86 思路走 S 态 `ecall`，在 RISC-V 上 ecall 被 SBI 接走，仍然回不到 `stvec`。最终改为 `do_execve` 成功后 `forkrets(current->tf)`。
 5. 构造 trapframe 时忘记清 `SPP`，`sret` 回到 S 态，用户入口取指页故障。改为 `(status & ~SPP) | SPIE` 并清 `SIE`。
 6. 只建栈 VMA 不预映射，第一次压栈就缺页，guard 边界容易写错。预映射栈顶 4 页，保留 `do_pgfault` 的 guard 检查。
 7. `CLONE_VM` 分支只复制了 `mm`，漏了 `proc->pgdir = PADDR(oldmm->pgdir)`，共享线程第一次被调度时 `satp` 指向旧值。补上。
 8. `ulib.h` 的 `assert` 用 `cprintf` 却没有包含 `stdio.h`，用户程序编译时出现隐式声明。补 `#include <stdio.h>`。
+9. `init_main` 用 `kernel_thread(...) != 0` 判断失败。`do_fork` 成功时返回子进程 PID（第一次是 2），父进程第一次启动就 `panic("create user_main failed")`。改成 `<= 0`，把“返回 PID”和“返回错误码”分开。
 
 ### 模块三：复制用户进程（负责人：宋秋实）
 
-涉及文件：`kern/process/proc.c` 的 `do_fork/copy_mm/copy_thread`、`kern/mm/vmm.c` 的 `dup_mmap`、`kern/mm/pmm.c` 的 `cow_copy_range`。
+涉及文件：`kern/process/proc.c` 的 `do_fork/copy_mm/copy_thread`、`kern/mm/vmm.c` 的 `dup_mmap`、`kern/mm/pmm.c` 的 `copy_range`。默认 fork 走 COW，`copy_range` 是关闭 COW 时的全量复制对照路径。
 
 #### 核心设计
 
@@ -153,6 +149,8 @@ Lab2 到 Lab4 的 CPU 始终在内核态运行：内核线程自己创建、自�
 
 COW 的难点不在拷贝，而在三个一致性：页表项权限、物理页引用计数、TLB 旧翻译。漏掉 `tlb_invalidate()` 会出现“第一次写成功、第二次仍读旧页”；漏掉引用计数会在 `exit_mmap()` 时提前释放仍被共享的页。
 
+我们另写了 `user/cowtest.c`：父进程在第一个子进程仍存活时再次 `fork`，让共享页引用计数达到 3；两个子进程分别写 `.data` 和栈页，父进程最后必须仍读到 `shared=1, local=10`。第一次运行在 `pid 4` 上报 `bad memory access at 0x803000`。根因是第二次 fork 时 `perm = (*ptep & PTE_USER)` 把软件位 `PTE_COW` 过滤掉了：父页已经是 `W=0, COW=1`，新子进程却拿到“只读但不带 COW”的页，写故障无法被 `do_pgfault()` 识别。把掩码改成 `PTE_USER | PTE_COW` 后用例通过。这个 bug 只有“连续 fork + 子进程仍存活”才会触发，`forktest` 和 `forktree` 都覆盖不到。
+
 Dirty COW 的启示是：COW 的“检查”和“使用”之间不能有可被利用的窗口。内核必须在写故障处理中原子地确认页仍是 COW、引用计数仍大于 1，再决定拷贝；如果先把页表改成可写、再去拷贝，另一个进程就能在窗口内写到同一页。ucore 单核关中断的实现天然缩小了这个窗口，但多核下必须依赖页表锁和引用计数原子操作。
 
 ### Challenge：用户程序的预加载方式
@@ -169,14 +167,22 @@ Dirty COW 的启示是：COW 的“检查”和“使用”之间不能有可被
 
 ### 分支任务：GDB 观察 `ecall` 与 `sret`（负责人：宋秋实）
 
-调试方案是用两个 GDB 会话：一个连 QEMU 的 `-s -S` 调试端口，另一个用 `riscv64-unknown-elf-gdb` 加载 `bin/kernel` 的符号。在 `__alltraps`、`trap`、`__trapret` 下断点，观察：
+指导书用双重 GDB 观察 QEMU 的地址翻译和陷阱注入。我们在 guest 侧用 `gdb-multiarch` 连接 `qemu-system-riscv64 -s -S`，先 `add-symbol-file obj/user/exit.out` 加载用户符号，再在内核 `syscall()` 和 `sret` 指令上下断点；QEMU 侧直接对照源码。`exit` 用例第一次进入内核时抓到的现场是：
 
-- `ecall` 前 `sepc` 指向 `ecall`，`scause = 8`（U 态）或 `9`（S 态）。
-- `SAVE_ALL` 后 `sp` 在内核栈，`sscratch` 为 0，trapframe 的 `gpr.sp` 是用户栈。
-- `trap()` 返回前 `current->tf` 指向本帧，`tf->epc` 已加 4。
-- `sret` 前 `sstatus.SPP=0`、`SPIE=1`、`sepc` 是用户下一条指令。
+```text
+nr=30 a1=0x49 a2=0x0 epc=0x8011ac
+sepc=0x8011a8 sstatus=0x8000000200046020 sscratch=0 sp=0xffffffffc041fec0
+```
 
-QEMU 的 RISC-V 陷阱注入在 `target/riscv/cpu_helper.c` 的 `riscv_raise_exception()`，`sret` 在 `target/riscv/insn_trans/trans_privileged.c.inc` 的 `trans_sret()`。阅读这两处可以确认：硬件在进入陷阱时把 `SIE` 存入 `SPIE` 并清 `SIE`，`sret` 时按 `SPP` 选择返回特权级、把 `SPIE` 写回 `SIE`。原始 GDB 记录和 QEMU 路径说明由宋秋实统一执行后归档到 `report/logs/runtime/`。
+`a1=0x49` 是字符 `I`，`epc` 已经由 `exception_handler` 加了 4，CSR 里的 `sepc` 仍指向 `ecall`；`sstatus` 的 SPP=0、SPIE=1，说明这是从 U 态进来的。继续到 `sret` 前：
+
+```text
+sepc=0x8011ac sstatus=0x8000000200046020 sscratch=0xffffffffc0420000 sp=0x7ffffe90
+```
+
+`sscratch` 已经换成该进程内核栈顶，`sp` 回到用户栈，`sepc` 是 `ecall` 的下一条指令。完整记录在 `report/logs/runtime/gdb-ecall-sret.log`。
+
+QEMU 侧的陷阱注入在 `target/riscv/cpu_helper.c` 的 `riscv_raise_exception()`：它按 `scause` 查 `stvec`，把当前 `sstatus.SIE` 写进 `SPIE`、清 `SIE`、把 `SPP` 置为当前特权级，再把 `sepc` 设为出错指令。`sret` 在 `target/riscv/insn_trans/trans_privileged.c.inc` 的 `trans_sret()`：按 `SPP` 选择返回模式，把 `SPIE` 写回 `SIE`，然后跳到 `sepc`。这也解释了 `load_icode` 为什么必须同时设置 `SPP/SPIE/SIE`：三个位分别控制“回到哪一层”“回去后开不开中断”“回去前是否响应中断”。
 
 ## 四、测试与验证
 
@@ -207,7 +213,7 @@ make qemu
 make grade
 ```
 
-按照分工，所有构建、QEMU、GDB、反汇编和 `make grade` 由宋秋实统一执行，原始串口日志、GDB 记录和评分输出归档在 `report/logs/runtime/`，静态检查记录归档在 `report/logs/static/`。报告不预先填写未实际产生的运行结果；截图和日志以归档文件为准。
+我们在 WSL2 + QEMU 7.0.0 上执行 `make grade`，13 个基础用例全部通过，输出为 `Total Score: 13/13`；另加的 COW 扩展用例 `make TEST=cowtest` 输出 `cowtest pass.`。评分原始输出在 `report/logs/runtime/grade.log`，`exit` 的完整串口输出在 `report/logs/runtime/qemu-exit.log`，COW 用例输出在 `report/logs/runtime/qemu-cowtest.log`，GDB 在 `syscall` 入口和 `sret` 前抓到的寄存器现场在 `report/logs/runtime/gdb-ecall-sret.log`。报告里的数字和寄存器值都来自这些归档，没有示意值。
 
 ## 五、知识点对照
 
@@ -215,10 +221,10 @@ make grade
 |---|---|---|---|
 | `ecall` + `__alltraps` + `sret` | 系统调用、陷阱、特权级切换 | 用户程序通过受控入口请求内核服务，硬件保存现场并切换特权级 | 课上把系统调用讲成“函数调用”，实验里它是两次特权级切换；`epc`、`sstatus`、`sscratch` 任何一个错都回不来 |
 | `struct trapframe` 的 36 个槽 | 中断现场、进程上下文 | 陷阱发生时保存的完整 CPU 状态 | 课上“保存现场”是一句话，实验里是固定偏移的汇编契约；少保存一个寄存器，返回后就少一个值 |
-| 系统调用表与 `a0..a6` | 系统调用接口、ABI | 用约定的寄存器和编号传递服务请求 | 课上讲接口语义，实验讲寄存器约定；编号越界必须显式拒绝，不能靠“不会发生” |
+| 系统调用表与 `a0..a5` | 系统调用接口、ABI | 用约定的寄存器和编号传递服务请求 | 课上讲接口语义，实验讲寄存器约定；编号越界必须显式拒绝，不能靠“不会发生” |
 | `user_mem_check` | 用户态/内核态隔离、地址空间保护 | 内核不能直接相信用户指针 | 课上讲“用户态不能访问内核”，实验里反过来：内核访问用户指针也要先验证 VMA 权限 |
 | `load_icode` 按 `p_memsz` 映射 | 程序加载、ELF、地址空间 | 可执行文件被映射成进程的代码、数据、栈 | 课上讲链接与装入，实验里要自己处理 `p_filesz/p_memsz`、`.bss` 清零和页对齐 |
-| `kernel_execve` 的 S 态 `ecall` | `exec` 语义、特权级下降 | 用新镜像替换当前进程并跳到用户入口 | 课上 `exec` 是系统调用，实验里内核线程也要“伪装成用户”走一次陷阱，才能完成下降 |
+| `kernel_execve` + `forkrets` | `exec` 语义、特权级下降 | 用新镜像替换当前进程并跳到用户入口 | 课上 `exec` 是系统调用；实验里内核线程没有用户现场，只能手工改写 trapframe，再借 `sret` 下降。RISC-V 的 S 态 `ecall` 走 SBI，不能拿来做这件事 |
 | `do_fork` + `copy_mm` + `copy_thread` | 进程创建、`fork` | 子进程复制父进程的地址空间和执行现场 | 课上 `fork` 一次调用返回两次，实验里是两套现场（`trapframe` 和 `context`）分别构造 |
 | COW + `PTE_COW` + 引用计数 | 写时复制、页面共享 | 共享只读页，写时再复制 | 课上讲“延迟复制”，实验里要同时维护页表权限、引用计数和 TLB，三者缺一不可 |
 | `do_exit` 不释放自己的 PCB/内核栈 | 僵尸进程、进程回收 | 退出进程保留最小状态供父进程读取 | 课上讲僵尸状态，实验里它对应“不能释放自己正在使用的栈”这一硬约束 |
@@ -261,7 +267,7 @@ prompt 里最重要的一句不是“要实现什么”，而是“不要碰什�
 
 ### 7.3 小组讨论中的三个分歧
 
-1. **`kernel_execve` 要不要走 `ecall`。** 一种意见是直接调用 `do_execve` 后手动跳 `__trapret`；另一种是走 S 态 `ecall`，让 `trap()` 自然拿到 trapframe。我们最后选后者，因为它复用了同一条陷阱返回路径，`current->tf` 的时序也更自然。
+1. **`kernel_execve` 要不要走 `ecall`。** 我们一开始认为 S 态 `ecall` 更自然，能让 `trap()` 顺手拿到 trapframe；实际跑起来才发现 RISC-V 把 S 态 `ecall` 交给 SBI，根本不进 `stvec`。改成直接 `do_execve + forkrets` 后链路才闭合。这个分歧的结论不是“哪种写法更好看”，而是“必须先把平台的异常模型搞清楚”。
 2. **COW 要不要默认开启。** 一种意见是先保证 `fork` 全量复制，COW 作为可选开关；另一种是默认 COW。我们保留 `LAB5_NO_COW` 开关，默认 COW，但要求全量复制路径也能通过 `forktest`，这样 COW 出问题时可以快速对照。
 3. **日志和截图要不要提前写进报告。** 我们坚持只写实际产生的证据，构建、QEMU、GDB 和评分由宋秋实统一执行后归档，报告里的结论必须能指回日志文件。
 

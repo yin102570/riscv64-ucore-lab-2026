@@ -426,12 +426,12 @@ void exit_range(pde_t *pgdir, uintptr_t start, uintptr_t end)
             }
 
             pte_t *pt = (pte_t *)KADDR(PDE_ADDR(*pde0));
-            bool empty = true;
+            bool empty = 1;
             for (int i = 0; i < NPTEENTRY; i++)
             {
                 if (pt[i] & PTE_V)
                 {
-                    empty = false;
+                    empty = 0;
                     break;
                 }
             }
@@ -443,12 +443,12 @@ void exit_range(pde_t *pgdir, uintptr_t start, uintptr_t end)
         }
 
         /* Free the second level directory only if it has no live entries. */
-        bool empty = true;
+        bool empty = 1;
         for (int i = 0; i < NPDEENTRY; i++)
         {
             if (d0[i] & PTE_V)
             {
-                empty = false;
+                empty = 0;
                 break;
             }
         }
@@ -530,7 +530,11 @@ int cow_copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end)
         if (*ptep & PTE_V)
         {
             struct Page *page = pte2page(*ptep);
-            uint32_t perm = (*ptep & PTE_USER) | PTE_V;
+            /* PTE_USER does not contain the software COW bit.  If the
+             * source is already COW (a second fork while a child is
+             * alive), dropping it would leave the new child with a
+             * read-only page that do_pgfault() cannot recognize. */
+            uint32_t perm = (*ptep & (PTE_USER | PTE_COW)) | PTE_V;
 
             if (perm & PTE_W)
             {

@@ -1,0 +1,15 @@
+hello:             PASS
+exit:              PASS
+forktest:          PASS
+yield:             PASS
+badarg:            PASS
+pgdir:             PASS
+testbss:           PASS
+waitkill:          PASS
+spin:              PASS
+forktree:          PASS
+faultread:         PASS
+faultreadkernel:   PASS
+badsegment:        PASS
+
+Total Score: 13/13

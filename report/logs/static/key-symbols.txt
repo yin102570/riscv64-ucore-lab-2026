@@ -1,0 +1,20 @@
+===== kernel key symbols =====
+ffffffffc0200b84 T exception_handler
+ffffffffc0200cba T trap
+ffffffffc0200d44 T __alltraps
+ffffffffc0200db4 T __trapret
+ffffffffc0200e0e T forkrets
+ffffffffc02031fa T cow_copy_range
+ffffffffc0203dd4 T syscall
+ffffffffc0204046 T do_exit
+ffffffffc0204194 T do_execve
+ffffffffc020468c T do_fork
+ffffffffc0204bf2 T do_wait
+
+===== user exit key symbols =====
+0000000000801000 T main
+0000000000801192 t syscall
+00000000008011b2 T sys_exit
+00000000008011c0 T sys_fork
+00000000008011ce T sys_wait
+0000000000801214 T sys_putc
