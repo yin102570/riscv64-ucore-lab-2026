@@ -223,31 +223,6 @@ int mm_map(struct mm_struct *mm, uintptr_t addr, size_t len, uint32_t vm_flags,
 }
 
 /*
- * mm_unmap - remove an exact vma and drop its page mappings.
- * Partial unmapping would require splitting a vma, which this lab never
- * needs; callers must pass a range that matches one vma exactly.
- */
-int mm_unmap(struct mm_struct *mm, uintptr_t addr, size_t len)
-{
-    uintptr_t start = ROUNDDOWN(addr, PGSIZE), end = ROUNDUP(addr + len, PGSIZE);
-    if (!USER_ACCESS(start, end))
-    {
-        return -E_INVAL;
-    }
-    struct vma_struct *vma = find_vma(mm, start);
-    if (vma == NULL || vma->vm_start != start || vma->vm_end != end)
-    {
-        return -E_INVAL;
-    }
-
-    list_del(&(vma->list_link));
-    mm->map_count--;
-    unmap_range(mm->pgdir, start, end);
-    kfree(vma);
-    return 0;
-}
-
-/*
  * dup_mmap - clone every vma of the parent and the pages behind it.
  * COW is the default for this lab: cow_copy_range() shares the writable
  * pages read-only. Defining LAB5_NO_COW falls back to a full copy.
@@ -298,27 +273,6 @@ void exit_mmap(struct mm_struct *mm)
         struct vma_struct *vma = le2vma(le, list_link);
         exit_range(pgdir, vma->vm_start, vma->vm_end);
     }
-}
-
-/* Copy a buffer from user space into the kernel, checking the whole range. */
-bool copy_from_user(struct mm_struct *mm, void *dst, const void *src, size_t len, bool writable)
-{
-    if (!user_mem_check(mm, (uintptr_t)src, len, writable))
-    {
-        return 0;
-    }
-    memcpy(dst, src, len);
-    return 1;
-}
-
-bool copy_to_user(struct mm_struct *mm, void *dst, const void *src, size_t len)
-{
-    if (!user_mem_check(mm, (uintptr_t)dst, len, 1))
-    {
-        return 0;
-    }
-    memcpy(dst, src, len);
-    return 1;
 }
 
 /*

@@ -50,13 +50,10 @@ int do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr);
 
 int mm_map(struct mm_struct *mm, uintptr_t addr, size_t len, uint32_t vm_flags,
            struct vma_struct **vma_store);
-int mm_unmap(struct mm_struct *mm, uintptr_t addr, size_t len);
 int dup_mmap(struct mm_struct *to, struct mm_struct *from);
 void exit_mmap(struct mm_struct *mm);
 
 bool user_mem_check(struct mm_struct *mm, uintptr_t start, size_t len, bool write);
-bool copy_from_user(struct mm_struct *mm, void *dst, const void *src, size_t len, bool writable);
-bool copy_to_user(struct mm_struct *mm, void *dst, const void *src, size_t len);
 
 extern volatile unsigned int pgfault_num;
 extern struct mm_struct *check_mm_struct;

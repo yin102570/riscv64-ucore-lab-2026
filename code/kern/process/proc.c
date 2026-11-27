@@ -54,14 +54,6 @@ set_proc_name(struct proc_struct *proc, const char *name)
     return memcpy(proc->name, name, PROC_NAME_LEN);
 }
 
-char *
-get_proc_name(struct proc_struct *proc)
-{
-    static char name[PROC_NAME_LEN + 1];
-    memset(name, 0, sizeof(name));
-    return memcpy(name, proc->name, PROC_NAME_LEN);
-}
-
 static int
 get_pid(void)
 {
