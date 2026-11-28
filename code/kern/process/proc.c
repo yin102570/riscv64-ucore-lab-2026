@@ -877,6 +877,14 @@ do_kill(int pid)
     {
         return -E_BAD_PROC;
     }
+    if (proc == initproc)
+    {
+        /* initproc is the root of the process tree: every orphan is
+         * re-parented to it, and do_exit() panics on it.  find_proc()
+         * already rejects pid <= 0 (so idleproc is safe), but pid == 1
+         * would still pass through and let user code kill the whole tree. */
+        return -E_BAD_PROC;
+    }
     proc->flags |= PF_EXITING;
     if (proc->state == PROC_SLEEPING)
     {
